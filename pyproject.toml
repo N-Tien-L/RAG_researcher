@@ -12,4 +12,7 @@ dependencies = [
     "pypdf",
     "langchain-community",
     "chromadb",
+    "youtube-transcript-api",
+    "transformers",
+    "python-dotenv"
 ]
