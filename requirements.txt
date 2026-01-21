@@ -1,7 +1,0 @@
-streamlit
-langchain
-langchain-ollama
-langchain-chroma
-pypdf
-langchain-community
-chromadb

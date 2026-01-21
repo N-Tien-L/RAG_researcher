@@ -6,9 +6,14 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# install system dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies using uv
+RUN uv sync --frozen --no-cache
 
 # copy the rest of the app
 COPY . .
@@ -16,4 +21,4 @@ COPY . .
 # streamlit use port 8501 by default
 EXPOSE 8501
 
-CMD ["streamlit", "run", "app/app.py", "--server.address=0.0.0.0"]
+CMD ["uv", "run", "streamlit", "run", "app/app.py", "--server.address=0.0.0.0"]
