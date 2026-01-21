@@ -11,7 +11,7 @@ from ingestion.ingest import (
     extract_from_pdf,
     extract_from_youtube,
 )
-from rag.chunking import chunk_extraction
+from rag.pipeline import RagPipeline
 from utils.text import standardize_text
 
 
@@ -24,6 +24,9 @@ def main() -> None:
 
     st.title("📥 Data Ingestion Pipeline Test")
     st.markdown("Test PDF and YouTube video extraction with text standardization")
+
+    # Initialize RAG pipeline for chunking
+    pipeline = RagPipeline(max_tokens=300, overlap=40)
 
     tab1, tab2 = st.tabs(["📄 PDF Upload", "🎥 YouTube Video"])
 
@@ -88,7 +91,7 @@ def main() -> None:
                     st.metric("Cleaned Length", len(standardized), delta=f"-{reduction} chars")
 
                 st.subheader("🔪 Chunking Preview")
-                chunks = chunk_extraction({**result, "text": standardized}, max_tokens=300, overlap=40)
+                chunks = pipeline.prepare_document(result)
                 st.caption(f"Generated {len(chunks)} chunks (showing first 3)")
                 for idx, chunk in enumerate(chunks[:3]):
                     st.text_area(
@@ -198,7 +201,7 @@ def main() -> None:
                     st.metric("Cleaned Length", len(standardized), delta=f"-{reduction} chars")
 
                 st.subheader("🔪 Chunking Preview")
-                chunks = chunk_extraction({**result, "text": standardized}, max_tokens=300, overlap=40)
+                chunks = pipeline.prepare_document(result)
                 st.caption(f"Generated {len(chunks)} chunks (showing first 3)")
                 for idx, chunk in enumerate(chunks[:3]):
                     st.text_area(
