@@ -1,15 +1,35 @@
-"""Retrieval layer placeholder for future vector store integrations."""
+"""Retrieval helpers for Chroma."""
 
-from typing import List
+from typing import Any, Dict, List, Optional
 
+from app.vectorstore.chroma import get_collection
 
-class Retriever:
-    """Stub retriever to be implemented with a vector store client."""
+def retrieve_chunks(
+    embedding: List[float],
+    collection_name: str,
+    top_k: int = 5,
+    where: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """Return the nearest chunks for a query embedding."""
 
-    def __init__(self) -> None:
-        self.ready = False
+    collection = get_collection(collection_name)
 
-    def search(self, query: str, k: int = 5) -> List[str]:
-        if not self.ready:
-            raise RuntimeError("Retriever not configured with a vector store")
-        return []
+    results = collection.query(
+        query_embeddings=[embedding],
+        n_results=top_k,
+        where=where,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    chunks: List[Dict[str, Any]] = []
+    for idx in range(len(results["ids"][0])):
+        chunks.append(
+            {
+                "id": results["ids"][0][idx],
+                "text": results["documents"][0][idx],
+                "metadata": results["metadatas"][0][idx],
+                "distance": results["distances"][0][idx],
+            }
+        )
+
+    return chunks
