@@ -17,6 +17,11 @@ dependencies = [
     "sqlalchemy",
     "alembic",
     "psycopg2-binary",
+    "fastapi",
+    "fastapi[standard]",
+    "uvicorn[standard]",
+    "bcrypt",
+    "python-jose[cryptography]"
 ]
 
 [build-system]
