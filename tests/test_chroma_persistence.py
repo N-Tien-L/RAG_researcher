@@ -2,14 +2,15 @@
 
 import os
 import unittest
+from pathlib import Path
 
 import chromadb
 
-from app.core.config import get_db_path
+from app.core.config import settings
 
 class TestChromaPersistence(unittest.TestCase):
     def test_persistence_round_trip(self) -> None:
-        db_path = get_db_path().as_posix()
+        db_path = Path(settings.VECTOR_STORAGE_PATH).as_posix()
         client = chromadb.PersistentClient(db_path)
         collection = client.get_or_create_collection("test_connection")
 

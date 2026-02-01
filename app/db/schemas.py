@@ -57,11 +57,34 @@ class UserCreate(UserBase):
 class UserUpdate(ORMModel):
 	email: Optional[EmailStr] = None
 	username: Optional[str] = None
-	password: Optional[str] = None
 
+
+class UserChangePassword(ORMModel):
+    current_password: str
+    new_password: str
+	
 
 class UserRead(UserBase, TimestampedModel):
 	id: UUID
+
+
+# Auth -------------------------------------------------------------------------
+
+
+# Remove unused LoginRequest
+# class LoginRequest(ORMModel):
+# 	email: EmailStr
+# 	password: str
+
+
+class Token(ORMModel):
+	access_token: str
+	token_type: str = "bearer"
+
+
+class TokenPayload(ORMModel):
+	sub: UUID | None = None
+	exp: int | None = None
 
 
 # Chat sessions ----------------------------------------------------------------
