@@ -19,29 +19,6 @@ class ChatService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    # Users ------------------------------------------------------------------
-    def create_user(self, user_in: schemas.UserCreate) -> schemas.UserRead:
-        # NOTE: add real password hashing in production
-        user = models.User(
-            email=user_in.email,
-            username=user_in.username,
-            password_hash=user_in.password,
-        )
-        self.db.add(user)
-        try:
-            self.db.commit()
-        except IntegrityError as exc:  # unique email/username violations
-            self.db.rollback()
-            raise ServiceError("User already exists") from exc
-        self.db.refresh(user)
-        return schemas.UserRead.model_validate(user)
-
-    def get_user(self, user_id: UUID) -> schemas.UserRead:
-        user = self.db.get(models.User, user_id)
-        if not user:
-            raise ServiceError("User not found")
-        return schemas.UserRead.model_validate(user)
-
     # Chat sessions ----------------------------------------------------------
     def create_chat_session(
         self, chat_in: schemas.ChatSessionCreate
