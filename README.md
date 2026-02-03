@@ -12,5 +12,11 @@
 ## Quickstart
 
 1. Install deps: `pip install -e .`
-2. Run Streamlit: `streamlit run app/main.py`
-3. Optionally set `DB_PATH` in `.env` for Chroma persistence.
+2. Run the API: `uvicorn app.main:app --reload`
+3. Optionally set `SECRET_KEY` and `ACCESS_TOKEN_EXPIRE_MINUTES` in `.env` to configure JWTs.
+
+### API authentication
+
+- Register a user via `POST /api/users`.
+- Log in with `POST /api/auth/login` (email + password) to receive an access token.
+- Authorize subsequent requests with header `Authorization: Bearer <token>`; check the active user with `GET /api/auth/me`.

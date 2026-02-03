@@ -5,7 +5,6 @@ services:
       - "8501:8501"
     volumes:
       - .:/app
-      - ./chroma_db:/app/chroma_db
     environment:
       POSTGRES_HOST: postgres
       OLLAMA_BASE_URL: http://host.docker.internal:11434
@@ -18,7 +17,7 @@ services:
 
   postgres:
     container_name: postgres_container
-    image: postgres
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}

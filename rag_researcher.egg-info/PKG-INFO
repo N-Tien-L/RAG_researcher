@@ -5,10 +5,8 @@ Requires-Python: >=3.12
 Requires-Dist: streamlit
 Requires-Dist: langchain
 Requires-Dist: langchain-ollama
-Requires-Dist: langchain-chroma
 Requires-Dist: pypdf
 Requires-Dist: langchain-community
-Requires-Dist: chromadb
 Requires-Dist: youtube-transcript-api
 Requires-Dist: transformers
 Requires-Dist: python-dotenv
@@ -16,6 +14,12 @@ Requires-Dist: ipywidgets
 Requires-Dist: sqlalchemy
 Requires-Dist: alembic
 Requires-Dist: psycopg2-binary
+Requires-Dist: pgvector
+Requires-Dist: fastapi
+Requires-Dist: fastapi[standard]
+Requires-Dist: uvicorn[standard]
+Requires-Dist: bcrypt
+Requires-Dist: python-jose[cryptography]
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
 Requires-Dist: pytest-cov; extra == "dev"

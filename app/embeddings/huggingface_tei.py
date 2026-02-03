@@ -1,4 +1,6 @@
 from typing import List, Optional
+
+from app.core.config import settings
 import requests
 
 
@@ -30,7 +32,12 @@ class HuggingFaceTEIEmbedder:
         )
         resp.raise_for_status()
 
-        return [item["embedding"] for item in resp.json()["data"]]
+        embeddings = [item["embedding"] for item in resp.json()["data"]]
+        if embeddings and len(embeddings[0]) != settings.EMBEDDING_DIM:
+            raise ValueError(
+                f"Embedding dimension {len(embeddings[0])} does not match configured EMBEDDING_DIM={settings.EMBEDDING_DIM}"
+            )
+        return embeddings
 
     def _embed(self, texts: List[str], mode: Optional[str] = None) -> List[List[float]]:
         embeddings: List[List[float]] = []

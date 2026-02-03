@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from sqlalchemy import (
@@ -10,9 +10,15 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import declarative_base, relationship
+from app.core.config import settings
 
 Base = declarative_base()
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 # User model
 class User(Base):
@@ -23,7 +29,7 @@ class User(Base):
     username = Column(String(100), unique=True, nullable=True)
     password_hash = Column(String(255), nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
 
     # Relationships
     chat_sessions = relationship(
@@ -49,7 +55,7 @@ class ChatSession(Base):
     # List of collection names used by this chat
     collections = Column(ARRAY(String), nullable=False, default=list)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
 
     # Relationships
     user = relationship("User", back_populates="chat_sessions")
@@ -89,7 +95,7 @@ class ChatMessage(Base):
     )
     content = Column(Text, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
 
     # Relationships
     chat_session = relationship("ChatSession", back_populates="messages")
@@ -115,7 +121,15 @@ class Source(Base):
 
     collection_name = Column(String(255), nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    source_key = Column(String(512), nullable=True)
+    source_uri = Column(Text, nullable=True)
+    external_id = Column(String(255), nullable=True)
+    content_hash = Column(String(128), nullable=True)
+
+    last_ingested_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)
+
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
 
     # Relationships
     user = relationship("User", back_populates="sources")
@@ -125,6 +139,21 @@ class Source(Base):
         back_populates="source",
         cascade="all, delete-orphan",
     )
+
+    # Note: document_chunks stored in pgvector table keyed by source_id string; no FK relationship here.
+
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chunk_id = Column(String(255), unique=True, nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(dim=settings.EMBEDDING_DIM), nullable=False)
+    source_id = Column(String(255), nullable=False)
+    file_hash = Column(String(128), nullable=False)
+    collection_name = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
 
 # ChatSessionSource model for the Many-to-Many relationship between chatSession and Source
 class ChatSessionSource(Base):
@@ -141,7 +170,7 @@ class ChatSessionSource(Base):
         primary_key=True,
     )
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
 
     # Optional future fields:
     # is_active = Column(Boolean, default=True)

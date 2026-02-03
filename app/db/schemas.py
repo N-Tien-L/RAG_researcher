@@ -134,6 +134,12 @@ class SourceBase(ORMModel):
 	title: str
 	collection_name: str
 	status: SourceStatus = SourceStatus.processing
+	source_key: Optional[str] = None
+	source_uri: Optional[str] = None
+	external_id: Optional[str] = None
+	content_hash: Optional[str] = None
+	last_ingested_at: Optional[datetime] = None
+	updated_at: Optional[datetime] = None
 
 
 class SourceCreate(SourceBase):
@@ -144,6 +150,12 @@ class SourceUpdate(ORMModel):
 	title: Optional[str] = None
 	collection_name: Optional[str] = None
 	status: Optional[SourceStatus] = None
+	source_key: Optional[str] = None
+	source_uri: Optional[str] = None
+	external_id: Optional[str] = None
+	content_hash: Optional[str] = None
+	last_ingested_at: Optional[datetime] = None
+	updated_at: Optional[datetime] = None
 
 
 class SourceRead(SourceBase, TimestampedModel):

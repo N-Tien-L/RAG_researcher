@@ -1,8 +1,8 @@
-"""Retrieval helpers for Chroma."""
+"""Retrieval helpers for pgvector."""
 
 from typing import Any, Dict, List, Optional
 
-from app.vectorstore.chroma import get_collection
+from app.vectorstore.pgvector_store import query_chunks as pgvector_query_chunks
 
 def retrieve_chunks(
     embedding: List[float],
@@ -10,26 +10,11 @@ def retrieve_chunks(
     top_k: int = 5,
     where: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Return the nearest chunks for a query embedding."""
+    """Return the nearest chunks for a query embedding (pgvector)."""
 
-    collection = get_collection(collection_name)
-
-    results = collection.query(
-        query_embeddings=[embedding],
-        n_results=top_k,
+    return pgvector_query_chunks(
+        embedding=embedding,
+        collection_name=collection_name,
+        top_k=top_k,
         where=where,
-        include=["documents", "metadatas", "distances"],
     )
-
-    chunks: List[Dict[str, Any]] = []
-    for idx in range(len(results["ids"][0])):
-        chunks.append(
-            {
-                "id": results["ids"][0][idx],
-                "text": results["documents"][0][idx],
-                "metadata": results["metadatas"][0][idx],
-                "distance": results["distances"][0][idx],
-            }
-        )
-
-    return chunks

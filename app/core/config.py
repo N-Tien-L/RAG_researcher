@@ -1,7 +1,6 @@
 """Configuration helpers."""
 
 import os
-from pathlib import Path
 from typing import List, Optional
 
 from dotenv import find_dotenv, load_dotenv
@@ -31,7 +30,7 @@ class Settings:
     # -------------------------
     # VECTOR DB
     # -------------------------
-    VECTOR_STORAGE_PATH: str = os.getenv("VECTOR_STORAGE_PATH", Path.cwd() / "chroma_db")
+    VECTOR_BACKEND: str = os.getenv("VECTOR_BACKEND", "pgvector")
 
     # -------------------------
     # POSTGRES DB URL
@@ -51,6 +50,7 @@ class Settings:
     # AI / Models
     # -------------------------
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "http://localhost:8080")
+    EMBEDDING_DIM: int = int(os.getenv("EMBEDDING_DIM", "1024"))
 
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "gemma3:1b")
     OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://localhost:11434")

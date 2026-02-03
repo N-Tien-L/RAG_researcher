@@ -8,15 +8,13 @@ from app.rag import pipeline as pipeline_module
 from app.rag import retrieval
 
 
-def test_retrieve_chunks_formats_chroma_response(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_collection = MagicMock()
-    fake_collection.query.return_value = {
-        "ids": [["c1", "c2"]],
-        "documents": [["doc one", "doc two"]],
-        "metadatas": [[{"page": 1}, {"page": 2}]],
-        "distances": [[0.05, 0.42]],
-    }
-    monkeypatch.setattr(retrieval, "get_collection", MagicMock(return_value=fake_collection))
+def test_retrieve_chunks_formats_pgvector_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_results = [
+        {"id": "c1", "text": "doc one", "metadata": {"page": 1}, "distance": 0.05},
+        {"id": "c2", "text": "doc two", "metadata": {"page": 2}, "distance": 0.42},
+    ]
+    query_mock = MagicMock(return_value=fake_results)
+    monkeypatch.setattr(retrieval, "pgvector_query_chunks", query_mock)
 
     embedding = [0.1, 0.2]
     where_filter = {"tag": "python"}
@@ -27,31 +25,22 @@ def test_retrieve_chunks_formats_chroma_response(monkeypatch: pytest.MonkeyPatch
         where=where_filter,
     )
 
-    fake_collection.query.assert_called_once_with(
-        query_embeddings=[embedding],
-        n_results=2,
+    query_mock.assert_called_once_with(
+        embedding=embedding,
+        collection_name="docs",
+        top_k=2,
         where=where_filter,
-        include=["documents", "metadatas", "ids", "distances"],
     )
-    assert chunks == [
-        {"id": "c1", "text": "doc one", "metadata": {"page": 1}, "distance": 0.05},
-        {"id": "c2", "text": "doc two", "metadata": {"page": 2}, "distance": 0.42},
-    ]
+    assert chunks == fake_results
 
 
-def test_retrieve_chunks_returns_empty_when_collection_has_no_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_collection = MagicMock()
-    fake_collection.query.return_value = {
-        "ids": [[]],
-        "documents": [[]],
-        "metadatas": [[]],
-        "distances": [[]],
-    }
-    monkeypatch.setattr(retrieval, "get_collection", MagicMock(return_value=fake_collection))
+def test_retrieve_chunks_returns_empty_when_no_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    query_mock = MagicMock(return_value=[])
+    monkeypatch.setattr(retrieval, "pgvector_query_chunks", query_mock)
 
     chunks = retrieval.retrieve_chunks(embedding=[0.9], collection_name="docs")
 
-    fake_collection.query.assert_called_once()
+    query_mock.assert_called_once()
     assert chunks == []
 
 

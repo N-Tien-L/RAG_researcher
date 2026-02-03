@@ -1,10 +1,8 @@
 streamlit
 langchain
 langchain-ollama
-langchain-chroma
 pypdf
 langchain-community
-chromadb
 youtube-transcript-api
 transformers
 python-dotenv
@@ -12,6 +10,12 @@ ipywidgets
 sqlalchemy
 alembic
 psycopg2-binary
+pgvector
+fastapi
+fastapi[standard]
+uvicorn[standard]
+bcrypt
+python-jose[cryptography]
 
 [dev]
 pytest
