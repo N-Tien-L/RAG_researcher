@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from app.applications.rag_service import RagService
 from app.core.config import settings
 from app.db.sessions import init_engine
+from app.utils.files import ensure_directory
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -11,6 +12,8 @@ async def lifespan(app: FastAPI):
     # Startup
     # -------------------------
     init_engine(settings.DATABASE_URL)
+
+    ensure_directory(settings.UPLOAD_DIR)
 
     app.state.rag_service = RagService(top_k=5)
 

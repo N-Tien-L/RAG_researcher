@@ -63,5 +63,10 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
 
+    # -------------------------
+    # File uploads
+    # -------------------------
+    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "./uploads")
+
 
 settings = Settings()
