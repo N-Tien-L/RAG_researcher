@@ -1,66 +1,126 @@
-from typing import List
+"""Business logic for user management."""
+
 from uuid import UUID
+
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import models, schemas
-from app.utils.password import hash_password
 from app.services.exceptions import ResourceConflict, ResourceNotFound
+from app.utils.password import hash_password
 
 
 class UserService:
-    def __init__(self, db: Session) -> None:
+    """Service layer for user operations."""
+
+    def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    def create_user(self, user_in: schemas.UserCreate) -> schemas.UserRead:
+    async def create_user(self, user_in: schemas.UserCreate) -> schemas.UserRead:
+        """Create a new user.
+        
+        Args:
+            user_in: User creation data.
+            
+        Returns:
+            Created user data.
+            
+        Raises:
+            ResourceConflict: If email or username already exists.
+        """
         user = models.User(
             email=user_in.email,
             username=user_in.username,
-            password_hash=hash_password(user_in.password)
+            password_hash=hash_password(user_in.password),
         )
         self.db.add(user)
 
         try:
-            self.db.commit()
+            await self.db.commit()
         except IntegrityError as exc:
-            self.db.rollback()
+            await self.db.rollback()
             raise ResourceConflict("User with this email or username already exists") from exc
-        self.db.refresh(user)
-        return schemas.UserRead.model_validate(user)
-    
-    def get_user(self, user_id: UUID) -> schemas.UserRead:
-        user = self.db.get(models.User ,user_id)
-        if not user:
-            raise ResourceNotFound("User not found")
-        return schemas.UserRead.model_validate(user)
-    
-    def list_user(self, skip: int = 0, limit: int = 100) -> List[schemas.UserRead]:
-        users = self.db.query(models.User).offset(skip).limit(limit).all()
-        return [schemas.UserRead.model_validate(user) for user in users]
-    
-    def update_user(self, user_id: UUID, user_update: schemas.UserUpdate) -> schemas.UserRead:
-        user = self.db.get(models.User, user_id)
-        if not user:
-            raise ResourceNotFound("User not found")
         
-        if user_update.email:
+        await self.db.refresh(user)
+        return schemas.UserRead.model_validate(user)
+
+    async def get_user(self, user_id: UUID) -> schemas.UserRead:
+        """Get user by ID.
+        
+        Args:
+            user_id: UUID of the user.
+            
+        Returns:
+            User data.
+            
+        Raises:
+            ResourceNotFound: If user does not exist.
+        """
+        user = await self.db.get(models.User, user_id)
+        if not user:
+            raise ResourceNotFound("User not found")
+        return schemas.UserRead.model_validate(user)
+
+    async def list_users(self, skip: int = 0, limit: int = 100) -> list[schemas.UserRead]:
+        """List users with pagination.
+        
+        Args:
+            skip: Number of records to skip.
+            limit: Maximum number of records to return.
+            
+        Returns:
+            List of users.
+        """
+        stmt = select(models.User).offset(skip).limit(limit)
+        result = await self.db.execute(stmt)
+        users = result.scalars().all()
+        return [schemas.UserRead.model_validate(user) for user in users]
+
+    async def update_user(self, user_id: UUID, user_update: schemas.UserUpdate) -> schemas.UserRead:
+        """Update user information.
+        
+        Args:
+            user_id: UUID of the user to update.
+            user_update: Updated user data.
+            
+        Returns:
+            Updated user data.
+            
+        Raises:
+            ResourceNotFound: If user does not exist.
+            ResourceConflict: If email or username conflicts.
+        """
+        user = await self.db.get(models.User, user_id)
+        if not user:
+            raise ResourceNotFound("User not found")
+
+        if user_update.email is not None:
             user.email = user_update.email
-        if user_update.username:
+        if user_update.username is not None:
             user.username = user_update.username
 
         try:
-            self.db.commit()
-            self.db.refresh(user)
+            await self.db.commit()
+            await self.db.refresh(user)
         except IntegrityError as exc:
-            self.db.rollback()
+            await self.db.rollback()
             raise ResourceConflict("Update failed: Email/User conflict") from exc
-        
+
         return schemas.UserRead.model_validate(user)
-    
-    def delete_user(self, user_id: UUID) -> None:
-        user = self.db.get(models.User, user_id)
+
+    async def delete_user(self, user_id: UUID) -> None:
+        """Delete a user.
+        
+        Args:
+            user_id: UUID of the user to delete.
+            
+        Raises:
+            ResourceNotFound: If user does not exist.
+        """
+        user = await self.db.get(models.User, user_id)
         if not user:
             raise ResourceNotFound("User not found")
-        
-        self.db.delete(user)
-        self.db.commit()
+
+        await self.db.delete(user)
+        await self.db.commit()
