@@ -2,5 +2,8 @@ chroma_db/
 __pycache__/
 .env
 .venv/
-.github*.egg-info/
+*.egg-info/
 uv.lock
+.pytest_cache/
+.mypy_cache/
+.github/
