@@ -163,6 +163,16 @@ class SourceRead(SourceBase, TimestampedModel):
 	user_id: UUID
 
 
+class SourceProcessResponse(ORMModel):
+	"""Response from source processing/ingestion."""
+	source: SourceRead
+	chunks_added: int
+	collection: str
+	ids: list[str]
+	content_hash: str
+	status: str  # 'ingested' or 'skipped'
+
+
 # Chat-session-to-source links --------------------------------------------------
 
 
