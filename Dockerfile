@@ -19,7 +19,6 @@ RUN uv sync --frozen --no-cache
 # copy the rest of the app
 COPY . .
 
-# streamlit use port 8501 by default
-EXPOSE 8501
+EXPOSE 8000
 
-CMD ["uv", "run", "streamlit", "run", "app/streamlit_app.py", "--server.address=0.0.0.0"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

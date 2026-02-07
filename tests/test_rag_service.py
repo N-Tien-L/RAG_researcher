@@ -15,7 +15,7 @@ def _default_get_env(key: str, default: str | None = None) -> str | None:
 
 def test_rag_service_answer_returns_llm_text_and_sources(monkeypatch: pytest.MonkeyPatch) -> None:
     embedder = MagicMock()
-    embedder.embed_query.return_value = [0.4]
+    embedder._embed.return_value = [[0.4]]
     monkeypatch.setattr(
         rag_service_module,
         "HuggingFaceTEIEmbedder",
@@ -42,7 +42,7 @@ def test_rag_service_answer_returns_llm_text_and_sources(monkeypatch: pytest.Mon
     service = RagService(top_k=2)
     response = service.answer("What is alpha?", collection_name="docs", where={"tag": "alpha"})
 
-    embedder.embed_query.assert_called_once_with("What is alpha?")
+    embedder._embed.assert_called_once_with(["What is alpha?"], mode="query")
     retrieve_mock.assert_called_once_with(
         embedding=[0.4],
         collection_name="docs",
@@ -59,7 +59,7 @@ def test_rag_service_answer_returns_llm_text_and_sources(monkeypatch: pytest.Mon
 
 def test_rag_service_answer_returns_fallback_when_no_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
     embedder = MagicMock()
-    embedder.embed_query.return_value = [0.1]
+    embedder._embed.return_value = [[0.1]]
     monkeypatch.setattr(
         rag_service_module,
         "HuggingFaceTEIEmbedder",
@@ -78,6 +78,6 @@ def test_rag_service_answer_returns_fallback_when_no_chunks(monkeypatch: pytest.
     service = RagService(top_k=3)
     response = service.answer("Any", collection_name="docs")
 
-    embedder.embed_query.assert_called_once_with("Any")
+    embedder._embed.assert_called_once_with(["Any"], mode="query")
     retrieve_mock.assert_called_once()
     assert response == {"answer": "I don't know.", "sources": []}

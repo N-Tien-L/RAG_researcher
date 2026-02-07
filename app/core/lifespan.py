@@ -1,29 +1,74 @@
+"""Application lifespan management."""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from app.applications.rag_service import RagService
+
+from app.cache.redis_cache import get_redis_client
 from app.core.config import settings
-from app.db.sessions import init_engine
+from app.core.logging import configure_logging, get_logger
+from app.db.sessions import engine, init_engine
 from app.utils.files import ensure_directory
+
+logger = get_logger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Manage application startup and shutdown."""
     # -------------------------
     # Startup
     # -------------------------
-    init_engine(settings.DATABASE_URL)
-
-    ensure_directory(settings.UPLOAD_DIR)
-
-    app.state.rag_service = RagService(top_k=5)
-
-    print("✅ Postgres connected")
-    print("✅ pgvector backend enabled")
-    print("✅ RAG service ready")
+    
+    # Configure logging
+    configure_logging(json_logs=False)  # Use colored console for development
+    logger.info("Starting RAG Researcher API", version=settings.VERSION)
+    
+    # Initialize database
+    init_engine(
+        settings.DATABASE_URL,
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
+    )
+    logger.info("Database engine initialized", driver="asyncpg", backend="pgvector")
+    
+    # Initialize Redis cache
+    if settings.REDIS_ENABLED:
+        try:
+            redis_client = await get_redis_client()
+            await redis_client.connect()
+            logger.info("Redis cache connected", url=settings.REDIS_CONNECTION_URL)
+        except Exception as exc:
+            logger.warning(
+                "Redis cache unavailable – continuing without cache",
+                error=str(exc),
+            )
+    
+    # Ensure upload directory exists
+    ensure_directory(str(settings.UPLOAD_DIR))
+    logger.info("Upload directory ready", path=str(settings.UPLOAD_DIR))
+    
+    logger.info("✅ RAG Researcher API ready", api_prefix=settings.API_PREFIX)
 
     yield
 
     # -------------------------
     # Shutdown
     # -------------------------
-    print("🛑 Shutting down API")
+    logger.info("Shutting down API")
+    
+    # Close Redis cache
+    if settings.REDIS_ENABLED:
+        try:
+            redis_client = await get_redis_client()
+            await redis_client.disconnect()
+            logger.info("Redis cache disconnected")
+        except Exception as exc:
+            logger.error("Redis disconnect error", error=str(exc))
+    
+    # Close database engine
+    if engine:
+        await engine.dispose()
+        logger.info("Database connections closed")
+    
+    logger.info("🛑 Shutdown complete")

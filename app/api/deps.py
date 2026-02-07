@@ -1,10 +1,12 @@
-# shared FastAPI dependencies
+"""Shared FastAPI dependencies."""
 
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
+import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db import schemas
@@ -19,44 +21,44 @@ from app.services.user_service import UserService
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login")
 
 
-def db_session() -> Generator[Session, None, None]:
-    """Provide a SQLAlchemy session per-request."""
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """Provide an async SQLAlchemy session per-request."""
+    async for session in get_db():
+        yield session
 
-    yield from get_db()
 
-
-def user_service(db: Session = Depends(db_session)) -> UserService:
-    """Dependency to inject ChatService with a live DB session."""
-
+def user_service(db: Annotated[AsyncSession, Depends(db_session)]) -> UserService:
+    """Dependency to inject UserService with a live DB session."""
     return UserService(db)
 
 
-def auth_service(db: Session = Depends(db_session)) -> AuthService:
+def auth_service(db: Annotated[AsyncSession, Depends(db_session)]) -> AuthService:
     """Dependency to inject AuthService with a live DB session."""
-
     return AuthService(db)
 
 
-def chat_service(db: Session = Depends(db_session)) -> ChatService:
+def chat_service(db: Annotated[AsyncSession, Depends(db_session)]) -> ChatService:
     """Dependency to inject ChatService with a live DB session."""
-
     return ChatService(db)
 
 
-def source_service(db: Session = Depends(db_session)) -> SourceService:
+def source_service(db: Annotated[AsyncSession, Depends(db_session)]) -> SourceService:
     """Dependency to inject SourceService with a live DB session."""
-
     return SourceService(db)
 
 
-def current_user(
-    token: str = Depends(oauth2_scheme),
-    service: AuthService = Depends(auth_service),
+async def current_user(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    service: Annotated[AuthService, Depends(auth_service)],
 ) -> schemas.UserRead:
+    """Get current authenticated user from JWT token."""
     try:
-        return service.get_current_user(token)
+        user = await service.get_current_user(token)
+        structlog.contextvars.bind_contextvars(user_id=str(user.id))
+        return user
     except AuthenticationError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
         ) from exc

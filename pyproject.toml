@@ -20,7 +20,9 @@ dependencies = [
     "fastapi[standard]",
     "uvicorn[standard]",
     "bcrypt",
-    "python-jose[cryptography]"
+    "python-jose[cryptography]",
+    "redis[asyncio]>=5.0.0",
+    "structlog"
 ]
 
 [build-system]

@@ -139,7 +139,7 @@ class IngestionService:
         )
 
         texts = [c["text"] for c in chunks]
-        embeddings = embedder.embed_documents(texts)
+        embeddings = embedder._embed(texts, mode=embedder.mode)
 
         content_hash = self._compute_content_hash(texts, source_type)
 

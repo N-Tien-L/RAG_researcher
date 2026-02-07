@@ -1,7 +1,9 @@
 """Unit tests for the HuggingFace text-embeddings inference client."""
 
+import asyncio
 from collections import deque
 from typing import Iterable, List
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -28,9 +30,10 @@ def test_embed_query_prefixes_payload_with_query_mode(monkeypatch: pytest.Monkey
         return _FakeResponse([[0.1, 0.2, 0.3]])
 
     monkeypatch.setattr(huggingface_tei.requests, "post", fake_post)
+    monkeypatch.setattr(huggingface_tei.settings, "REDIS_ENABLED", False)
 
     embedder = HuggingFaceTEIEmbedder(base_url="http://tei", timeout=5)
-    vector = embedder.embed_query("hello world")
+    vector = asyncio.get_event_loop().run_until_complete(embedder.embed_query("hello world"))
 
     assert vector == [0.1, 0.2, 0.3]
     assert captured_payloads == [
@@ -48,9 +51,12 @@ def test_embed_documents_batches_by_max_size(monkeypatch: pytest.MonkeyPatch) ->
         return _FakeResponse(batch_embeddings)
 
     monkeypatch.setattr(huggingface_tei.requests, "post", fake_post)
+    monkeypatch.setattr(huggingface_tei.settings, "REDIS_ENABLED", False)
 
     embedder = HuggingFaceTEIEmbedder(base_url="http://tei", max_batch_size=2, mode="passage")
-    vectors = embedder.embed_documents(["Document A", "Document B", "Document C"])
+    vectors = asyncio.get_event_loop().run_until_complete(
+        embedder.embed_documents(["Document A", "Document B", "Document C"])
+    )
 
     assert len(vectors) == 3
     assert payload_inputs == [
