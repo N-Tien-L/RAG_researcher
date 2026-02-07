@@ -33,7 +33,7 @@ class RagService:
     ) -> Dict[str, object]:
         """Return an answer string + chunk metadata for a user question."""
 
-        query_embedding = self.embedder.embed_query(question)
+        query_embedding = self.embedder._embed([question], mode="query")[0]
         chunks = retrieve_chunks(
             embedding=query_embedding,
             collection_name=collection_name,
