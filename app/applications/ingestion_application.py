@@ -1,6 +1,7 @@
 """Application-level orchestration for ingestion workflows."""
 
 import hashlib
+import time
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,12 @@ from app.rag.chunking import (
     chunk_pdf_extraction,
     chunk_youtube_extraction,
 )
+from app.observability.metrics import (
+    record_database_query,
+    record_embedding,
+    record_ingestion_job,
+)
+from app.observability.tracing import add_span_event, trace_context_manager
 from app.services.exceptions import (
     EmbeddingError,
     IngestionError,
@@ -134,6 +141,7 @@ class IngestionApplicationService:
             ValueError: If source_type is unsupported.
         """
         logger.info("Starting ingestion", source=source, source_type=source_type)
+        start_time = time.perf_counter()
 
         # Update source status to processing
         await self.source_service.update_source_status(
@@ -141,125 +149,169 @@ class IngestionApplicationService:
         )
 
         try:
-            # Extract content
-            try:
-                if source_type == "pdf":
-                    extraction = extract_from_pdf(source)
-                elif source_type == "youtube":
-                    extraction = extract_from_youtube(source)
-                else:
-                    raise ValueError(f"Unsupported source_type: {source_type}")
-            except (PDFExtractionError, YouTubeExtractionError) as exc:
-                raise IngestionError(
-                    message=f"Failed to extract content from {source_type} source",
-                    stage="extraction",
-                    source_id=source_id,
-                    **get_request_context_data(),
-                ) from exc
+            with trace_context_manager(
+                "ingestion.process_source",
+                {
+                    "source_id": source_id,
+                    "source_type": source_type,
+                    "collection_name": collection_name,
+                },
+            ):
+                # Extract content
+                try:
+                    with trace_context_manager(
+                        "ingestion.extract",
+                        {"source_type": source_type},
+                    ):
+                        if source_type == "pdf":
+                            extraction = extract_from_pdf(source)
+                        elif source_type == "youtube":
+                            extraction = extract_from_youtube(source)
+                        else:
+                            raise ValueError(f"Unsupported source_type: {source_type}")
+                except (PDFExtractionError, YouTubeExtractionError) as exc:
+                    raise IngestionError(
+                        message=f"Failed to extract content from {source_type} source",
+                        stage="extraction",
+                        source_id=source_id,
+                        **get_request_context_data(),
+                    ) from exc
 
-            # Merge metadata
-            base_metadata = extraction.get("metadata", {})
-            if extra_metadata:
-                base_metadata = {**base_metadata, **extra_metadata}
+                # Merge metadata
+                base_metadata = extraction.get("metadata", {})
+                if extra_metadata:
+                    base_metadata = {**base_metadata, **extra_metadata}
 
-            if source_uuid:
-                base_metadata["source_uuid"] = source_uuid
-            if source_key:
-                base_metadata["source_key"] = source_key
+                if source_uuid:
+                    base_metadata["source_uuid"] = source_uuid
+                if source_key:
+                    base_metadata["source_key"] = source_key
 
-            extraction["metadata"] = base_metadata
+                extraction["metadata"] = base_metadata
 
-            file_hash = self._compute_file_hash_from_extraction(extraction)
+                file_hash = self._compute_file_hash_from_extraction(extraction)
+                add_span_event("content_hash_computed", {"source_id": source_id})
 
-            # Smart re-ingest logic
-            existing_hash = await get_existing_file_hash(self.db, source_id)
-            if existing_hash and existing_hash == file_hash:
-                logger.info("Source unchanged; skipping ingestion", source_id=source_id)
+                # Smart re-ingest logic
+                existing_hash = await get_existing_file_hash(self.db, source_id)
+                if existing_hash and existing_hash == file_hash:
+                    logger.info("Source unchanged; skipping ingestion", source_id=source_id)
+                    add_span_event("duplicate_detected", {"source_id": source_id})
+                    await self.source_service.update_source_status(
+                        source_id, schemas.SourceStatus.ready
+                    )
+                    record_ingestion_job(
+                        source_type=source_type,
+                        status="skipped",
+                        duration_seconds=time.perf_counter() - start_time,
+                        chunks_count=0,
+                    )
+                    return {
+                        "chunks_added": 0,
+                        "collection": collection_name,
+                        "ids": [],
+                        "content_hash": file_hash,
+                        "status": "skipped",
+                    }
+
+                if existing_hash and existing_hash != file_hash:
+                    deleted = await delete_chunks_by_source(self.db, source_id)
+                    logger.info(
+                        "Source modified; re-ingesting",
+                        source_id=source_id,
+                        deleted_chunks=deleted,
+                    )
+
+                # Chunk content
+                try:
+                    with trace_context_manager("ingestion.chunk"):
+                        chunks = self._prepare_chunks(extraction, source_id)
+                    add_span_event("chunks_prepared", {"chunks_count": len(chunks)})
+                except Exception as exc:
+                    raise IngestionError(
+                        message="Failed to chunk extracted content",
+                        stage="chunking",
+                        source_id=source_id,
+                        **get_request_context_data(),
+                    ) from exc
+
+                # Generate embeddings
+                embedder = HuggingFaceTEIEmbedder(
+                    base_url=settings.TEI_URL,
+                    max_batch_size=settings.TEI_MAX_BATCH,
+                    mode="passage",
+                )
+
+                texts = [c["text"] for c in chunks]
+                try:
+                    with trace_context_manager(
+                        "ingestion.embed",
+                        {"provider": "huggingface_tei", "mode": "passage"},
+                    ):
+                        embed_start = time.perf_counter()
+                        embeddings = await embedder.embed_documents(texts)
+                        embed_duration = time.perf_counter() - embed_start
+                        record_embedding(
+                            provider="huggingface_tei",
+                            mode="passage",
+                            duration_seconds=embed_duration,
+                            batch_size=len(texts),
+                        )
+                except Exception as exc:
+                    raise EmbeddingError(
+                        message="Failed to generate embeddings for document chunks",
+                        provider="huggingface_tei",
+                        **get_request_context_data(),
+                    ) from exc
+
+                content_hash = self._compute_content_hash(texts, source_type)
+
+                # Insert chunks
+                try:
+                    with trace_context_manager("ingestion.store"):
+                        store_start = time.perf_counter()
+                        inserted = await insert_chunks(
+                            self.db,
+                            chunks=chunks,
+                            embeddings=embeddings,
+                            source_id=source_id,
+                            file_hash=file_hash,
+                            collection_name=collection_name,
+                        )
+                        store_duration = time.perf_counter() - store_start
+                        record_database_query("INSERT", "document_chunks", store_duration)
+                except Exception as exc:
+                    raise VectorStoreError(
+                        message="Failed to insert chunks into vector store",
+                        operation="insert",
+                        **get_request_context_data(),
+                    ) from exc
+
+                logger.info(
+                    "Ingestion completed",
+                    chunks_added=inserted,
+                    collection=collection_name,
+                )
+
+                # Update source status and metadata
                 await self.source_service.update_source_status(
                     source_id, schemas.SourceStatus.ready
                 )
+
+                record_ingestion_job(
+                    source_type=source_type,
+                    status="success",
+                    duration_seconds=time.perf_counter() - start_time,
+                    chunks_count=inserted,
+                )
+
                 return {
-                    "chunks_added": 0,
+                    "chunks_added": inserted,
                     "collection": collection_name,
-                    "ids": [],
-                    "content_hash": file_hash,
-                    "status": "skipped",
+                    "ids": [c["id"] for c in chunks],
+                    "content_hash": content_hash,
+                    "status": "ingested",
                 }
-
-            if existing_hash and existing_hash != file_hash:
-                deleted = await delete_chunks_by_source(self.db, source_id)
-                logger.info(
-                    "Source modified; re-ingesting",
-                    source_id=source_id,
-                    deleted_chunks=deleted,
-                )
-
-            # Chunk content
-            try:
-                chunks = self._prepare_chunks(extraction, source_id)
-            except Exception as exc:
-                raise IngestionError(
-                    message="Failed to chunk extracted content",
-                    stage="chunking",
-                    source_id=source_id,
-                    **get_request_context_data(),
-                ) from exc
-
-            # Generate embeddings
-            embedder = HuggingFaceTEIEmbedder(
-                base_url=settings.TEI_URL,
-                max_batch_size=settings.TEI_MAX_BATCH,
-                mode="passage",
-            )
-
-            texts = [c["text"] for c in chunks]
-            # embed_documents is now async with built-in caching
-            try:
-                embeddings = await embedder.embed_documents(texts)
-            except Exception as exc:
-                raise EmbeddingError(
-                    message="Failed to generate embeddings for document chunks",
-                    provider="huggingface_tei",
-                    **get_request_context_data(),
-                ) from exc
-
-            content_hash = self._compute_content_hash(texts, source_type)
-
-            # Insert chunks
-            try:
-                inserted = await insert_chunks(
-                    self.db,
-                    chunks=chunks,
-                    embeddings=embeddings,
-                    source_id=source_id,
-                    file_hash=file_hash,
-                    collection_name=collection_name,
-                )
-            except Exception as exc:
-                raise VectorStoreError(
-                    message="Failed to insert chunks into vector store",
-                    operation="insert",
-                    **get_request_context_data(),
-                ) from exc
-
-            logger.info(
-                "Ingestion completed",
-                chunks_added=inserted,
-                collection=collection_name,
-            )
-
-            # Update source status and metadata
-            await self.source_service.update_source_status(
-                source_id, schemas.SourceStatus.ready
-            )
-
-            return {
-                "chunks_added": inserted,
-                "collection": collection_name,
-                "ids": [c["id"] for c in chunks],
-                "content_hash": content_hash,
-                "status": "ingested",
-            }
 
         except (IngestionError, EmbeddingError, VectorStoreError) as exc:
             logger.error(
@@ -271,6 +323,12 @@ class IngestionApplicationService:
             await self.source_service.update_source_status(
                 source_id, schemas.SourceStatus.failed
             )
+            record_ingestion_job(
+                source_type=source_type,
+                status="failure",
+                duration_seconds=time.perf_counter() - start_time,
+                chunks_count=0,
+            )
             raise
         except Exception as exc:
             logger.error(
@@ -281,6 +339,12 @@ class IngestionApplicationService:
             )
             await self.source_service.update_source_status(
                 source_id, schemas.SourceStatus.failed
+            )
+            record_ingestion_job(
+                source_type=source_type,
+                status="failure",
+                duration_seconds=time.perf_counter() - start_time,
+                chunks_count=0,
             )
             raise IngestionError(
                 message="Unexpected error during ingestion",

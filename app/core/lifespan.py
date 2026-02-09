@@ -8,6 +8,7 @@ from app.cache.redis_cache import get_redis_client
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.db.sessions import engine, init_engine
+from app.observability.tracing import configure_tracing, instrument_sqlalchemy, shutdown_tracing
 from app.utils.files import ensure_directory
 
 logger = get_logger(__name__)
@@ -23,6 +24,20 @@ async def lifespan(app: FastAPI):
     # Configure logging
     configure_logging(json_logs=False)  # Use colored console for development
     logger.info("Starting RAG Researcher API", version=settings.VERSION)
+
+    if settings.ENABLE_TRACING:
+        configure_tracing(
+            service_name=settings.OTEL_SERVICE_NAME,
+            jaeger_endpoint=settings.JAEGER_ENDPOINT,
+            enable_console_export=settings.OTEL_EXPORTER_TYPE == "console",
+            exporter_type=settings.OTEL_EXPORTER_TYPE,
+            sample_rate=settings.OTEL_TRACE_SAMPLE_RATE,
+        )
+        logger.info(
+            "Tracing enabled",
+            exporter=settings.OTEL_EXPORTER_TYPE,
+            sample_rate=settings.OTEL_TRACE_SAMPLE_RATE,
+        )
     
     # Initialize database
     init_engine(
@@ -31,6 +46,9 @@ async def lifespan(app: FastAPI):
         max_overflow=settings.DB_MAX_OVERFLOW,
     )
     logger.info("Database engine initialized", driver="asyncpg", backend="pgvector")
+
+    if settings.ENABLE_TRACING and engine is not None:
+        instrument_sqlalchemy(engine.sync_engine)
     
     # Initialize Redis cache
     if settings.REDIS_ENABLED:
@@ -70,5 +88,9 @@ async def lifespan(app: FastAPI):
     if engine:
         await engine.dispose()
         logger.info("Database connections closed")
+
+    if settings.ENABLE_TRACING:
+        shutdown_tracing()
+        logger.info("Tracing shutdown complete")
     
     logger.info("🛑 Shutdown complete")

@@ -107,6 +107,24 @@ class Settings(BaseSettings):
     CACHE_TTL_LLM: int = int(os.getenv("CACHE_TTL_LLM", "1800"))
     CACHE_KEY_PREFIX: str = os.getenv("CACHE_KEY_PREFIX", "rag_cache")
 
+    # -------------------------
+    # Observability
+    # -------------------------
+    ENABLE_METRICS: bool = os.getenv("ENABLE_METRICS", "true").lower() == "true"
+    ENABLE_TRACING: bool = os.getenv("ENABLE_TRACING", "true").lower() == "true"
+    OTEL_SERVICE_NAME: str = os.getenv("OTEL_SERVICE_NAME", "rag-researcher")
+    OTEL_EXPORTER_TYPE: str = os.getenv("OTEL_EXPORTER_TYPE", "jaeger")
+    JAEGER_ENDPOINT: str = os.getenv(
+        "JAEGER_ENDPOINT",
+        "http://localhost:14268/api/traces",
+    )
+    OTEL_TRACE_SAMPLE_RATE: float = float(
+        os.getenv("OTEL_TRACE_SAMPLE_RATE", "1.0")
+    )
+    METRICS_SLOW_QUERY_THRESHOLD_MS: int = int(
+        os.getenv("METRICS_SLOW_QUERY_THRESHOLD_MS", "100")
+    )
+
     @property
     def REDIS_CONNECTION_URL(self) -> str:
         """Return the Redis connection URL.

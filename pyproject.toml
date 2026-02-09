@@ -22,7 +22,14 @@ dependencies = [
     "bcrypt",
     "python-jose[cryptography]",
     "redis[asyncio]>=5.0.0",
-    "structlog"
+    "structlog",
+    "prometheus-client",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "opentelemetry-instrumentation-fastapi",
+    "opentelemetry-instrumentation-sqlalchemy",
+    "opentelemetry-exporter-jaeger",
+    "opentelemetry-exporter-otlp"
 ]
 
 [build-system]

@@ -1,6 +1,7 @@
 """Async RAG pipeline using LangChain Expression Language (LCEL)."""
 
 import asyncio
+import time
 from typing import Any
 
 from langchain_community.chat_models import ChatOllama
@@ -18,6 +19,12 @@ from app.cache.redis_cache import compute_cache_key, get_redis_client
 from app.core.config import settings
 from app.core.logging import get_logger, log_cache_operation, log_generation, log_retrieval
 from app.embeddings.huggingface_tei import HuggingFaceTEIEmbedder
+from app.observability.metrics import (
+    record_cache_operation,
+    record_embedding,
+    record_rag_query,
+)
+from app.observability.tracing import add_span_attributes, add_span_event, trace_context_manager
 from app.rag.prompts.qa import QA_PROMPT_V1
 from app.rag.retrieval import retrieve_chunks
 from app.services.exceptions import (
@@ -59,36 +66,59 @@ class RAGPipeline:
         self, db: AsyncSession, query: str, collection_name: str, where: dict[str, Any] | None
     ) -> dict[str, Any]:
         """Retrieve chunks and format context."""
-        import time
-        start = time.time()
-        
-        # Embed query (async with internal caching)
-        try:
-            query_embedding = await self.embedder.embed_query(query)
-        except Exception as exc:
-            raise EmbeddingError(
-                message="Failed to generate query embedding",
-                provider="huggingface_tei",
-                **get_request_context_data(),
-            ) from exc
-        
-        # Retrieve chunks
-        try:
-            chunks = await retrieve_chunks(
-                db=db,
-                embedding=query_embedding,
-                collection_name=collection_name,
-                top_k=self.top_k,
-                where=where,
-            )
-        except Exception as exc:
-            raise VectorStoreError(
-                message="Failed to retrieve chunks from vector store",
-                operation="query",
-                **get_request_context_data(),
-            ) from exc
-        
-        retrieval_time_ms = (time.time() - start) * 1000
+        retrieval_start = time.perf_counter()
+
+        with trace_context_manager(
+            "rag.retrieval",
+            {
+                "collection_name": collection_name,
+                "top_k": self.top_k,
+                "query": query[:200],
+            },
+        ):
+            # Embed query (async with internal caching)
+            try:
+                with trace_context_manager(
+                    "rag.embed_query",
+                    {"provider": "huggingface_tei", "mode": "query"},
+                ):
+                    embed_start = time.perf_counter()
+                    query_embedding = await self.embedder.embed_query(query)
+                    embed_duration = time.perf_counter() - embed_start
+                    record_embedding(
+                        provider="huggingface_tei",
+                        mode="query",
+                        duration_seconds=embed_duration,
+                        batch_size=1,
+                    )
+            except Exception as exc:
+                raise EmbeddingError(
+                    message="Failed to generate query embedding",
+                    provider="huggingface_tei",
+                    **get_request_context_data(),
+                ) from exc
+
+            # Retrieve chunks
+            try:
+                with trace_context_manager(
+                    "rag.vector_search",
+                    {"collection_name": collection_name},
+                ):
+                    chunks = await retrieve_chunks(
+                        db=db,
+                        embedding=query_embedding,
+                        collection_name=collection_name,
+                        top_k=self.top_k,
+                        where=where,
+                    )
+            except Exception as exc:
+                raise VectorStoreError(
+                    message="Failed to retrieve chunks from vector store",
+                    operation="query",
+                    **get_request_context_data(),
+                ) from exc
+
+        retrieval_time_ms = (time.perf_counter() - retrieval_start) * 1000
         
         # Log retrieval metrics
         top_score = chunks[0]["score"] if chunks else None
@@ -109,6 +139,7 @@ class RAGPipeline:
         return {
             "context": context,
             "chunks": chunks,
+            "retrieval_time_seconds": retrieval_time_ms / 1000,
         }
 
     @retry(
@@ -118,81 +149,95 @@ class RAGPipeline:
     )
     async def _generate_answer(
         self, context: str, question: str
-    ) -> str:
+    ) -> tuple[str, float]:
         """Generate answer with retry logic, timeout, and LLM response caching."""
-        import time
-
-        # ---- LLM cache lookup ----
-        cache_key = f"llm:{settings.OLLAMA_MODEL}:{compute_cache_key(context, question, settings.OLLAMA_MODEL, settings.OLLAMA_TEMPERATURE)}"
-
-        if settings.REDIS_ENABLED:
-            redis_client = await get_redis_client()
-            cache_start = time.time()
-            cached = await redis_client.get(cache_key)
-            cache_elapsed = (time.time() - cache_start) * 1000
-
-            if cached is not None:
-                log_cache_operation(logger, "hit", "llm", cache_key, cache_elapsed)
-                return cached
-
-            log_cache_operation(logger, "miss", "llm", cache_key, cache_elapsed)
-
-        # ---- LLM generation ----
-        start = time.time()
-
-        # Build LCEL chain
-        chain = (
-            RunnableParallel(
-                context=RunnablePassthrough(),
-                question=RunnablePassthrough(),
-            )
-            | QA_PROMPT_V1
-            | self.llm
-            | StrOutputParser()
+        cache_key = (
+            f"llm:{settings.OLLAMA_MODEL}:"
+            f"{compute_cache_key(context, question, settings.OLLAMA_MODEL, settings.OLLAMA_TEMPERATURE)}"
         )
 
-        # Invoke with timeout
-        try:
-            response = await asyncio.wait_for(
-                chain.ainvoke({"context": context, "question": question}),
-                timeout=settings.LLM_TIMEOUT,
+        with trace_context_manager(
+            "rag.generation",
+            {
+                "model": settings.OLLAMA_MODEL,
+                "temperature": settings.OLLAMA_TEMPERATURE,
+                "context_length": len(context),
+            },
+        ):
+            # ---- LLM cache lookup ----
+            if settings.REDIS_ENABLED:
+                redis_client = await get_redis_client()
+                cache_start = time.perf_counter()
+                cached = await redis_client.get(cache_key)
+                cache_elapsed = time.perf_counter() - cache_start
+
+                if cached is not None:
+                    log_cache_operation(logger, "hit", "llm", cache_key, cache_elapsed * 1000)
+                    record_cache_operation("get", "llm", cache_elapsed, True)
+                    add_span_event("cache.hit", {"cache_type": "llm"})
+                    return cached, 0.0
+
+                log_cache_operation(logger, "miss", "llm", cache_key, cache_elapsed * 1000)
+                record_cache_operation("get", "llm", cache_elapsed, False)
+                add_span_event("cache.miss", {"cache_type": "llm"})
+
+            # ---- LLM generation ----
+            start = time.perf_counter()
+
+            # Build LCEL chain
+            chain = (
+                RunnableParallel(
+                    context=RunnablePassthrough(),
+                    question=RunnablePassthrough(),
+                )
+                | QA_PROMPT_V1
+                | self.llm
+                | StrOutputParser()
             )
-        except asyncio.TimeoutError as exc:
-            logger.error(
-                "LLM call timed out",
-                timeout=settings.LLM_TIMEOUT,
-                question=question[:100],
+
+            # Invoke with timeout
+            try:
+                with trace_context_manager("rag.llm_invoke"):
+                    response = await asyncio.wait_for(
+                        chain.ainvoke({"context": context, "question": question}),
+                        timeout=settings.LLM_TIMEOUT,
+                    )
+            except asyncio.TimeoutError as exc:
+                logger.error(
+                    "LLM call timed out",
+                    timeout=settings.LLM_TIMEOUT,
+                    question=question[:100],
+                )
+                raise LLMError(
+                    message=f"LLM response timed out after {settings.LLM_TIMEOUT}s",
+                    model=settings.OLLAMA_MODEL,
+                    **get_request_context_data(),
+                ) from exc
+            except Exception as exc:
+                raise LLMError(
+                    message="Failed to generate answer from LLM",
+                    model=settings.OLLAMA_MODEL,
+                    **get_request_context_data(),
+                ) from exc
+
+            generation_time_seconds = time.perf_counter() - start
+
+            # Log generation metrics
+            log_generation(
+                logger,
+                query=question,
+                response_length=len(response),
+                tokens_used=None,  # Ollama doesn't provide token count easily
+                generation_time_ms=generation_time_seconds * 1000,
             )
-            raise LLMError(
-                message=f"LLM response timed out after {settings.LLM_TIMEOUT}s",
-                model=settings.OLLAMA_MODEL,
-                **get_request_context_data(),
-            ) from exc
-        except Exception as exc:
-            raise LLMError(
-                message="Failed to generate answer from LLM",
-                model=settings.OLLAMA_MODEL,
-                **get_request_context_data(),
-            ) from exc
 
-        generation_time_ms = (time.time() - start) * 1000
+            answer = response.strip()
 
-        # Log generation metrics
-        log_generation(
-            logger,
-            query=question,
-            response_length=len(response),
-            tokens_used=None,  # Ollama doesn't provide token count easily
-            generation_time_ms=generation_time_ms,
-        )
+            # ---- Store in cache ----
+            if settings.REDIS_ENABLED:
+                await redis_client.set(cache_key, answer, ttl=settings.CACHE_TTL_LLM)
 
-        answer = response.strip()
-
-        # ---- Store in cache ----
-        if settings.REDIS_ENABLED:
-            await redis_client.set(cache_key, answer, ttl=settings.CACHE_TTL_LLM)
-
-        return answer
+            return answer, generation_time_seconds
 
     async def query(
         self,
@@ -212,35 +257,63 @@ class RAGPipeline:
         Returns:
             Dictionary with 'answer' and 'sources' keys.
         """
-        # Retrieve and format context
-        retrieval_result = await self._retrieve_and_format(
-            db, question, collection_name, where
-        )
-        
-        if not retrieval_result["chunks"]:
-            logger.info("No chunks found for query", question=question[:100])
-            return {
-                "answer": "I don't know. No relevant information was found.",
-                "sources": [],
-            }
-        
-        # Generate answer
-        answer = await self._generate_answer(
-            retrieval_result["context"],
-            question,
-        )
-        
-        # Format sources
-        sources = [
+        query_start = time.perf_counter()
+        with trace_context_manager(
+            "rag.query",
             {
-                "chunk_id": chunk["id"],
-                "score": chunk["score"],
-                "metadata": chunk.get("metadata", {}),
+                "collection_name": collection_name,
+                "question": question[:200],
+            },
+        ):
+            # Retrieve and format context
+            retrieval_result = await self._retrieve_and_format(
+                db, question, collection_name, where
+            )
+
+            if not retrieval_result["chunks"]:
+                logger.info("No chunks found for query", question=question[:100])
+                record_rag_query(
+                    collection=collection_name,
+                    duration_seconds=time.perf_counter() - query_start,
+                    retrieval_seconds=retrieval_result["retrieval_time_seconds"],
+                    generation_seconds=0.0,
+                    status="empty",
+                )
+                return {
+                    "answer": "I don't know. No relevant information was found.",
+                    "sources": [],
+                }
+
+            # Generate answer
+            answer, generation_time_seconds = await self._generate_answer(
+                retrieval_result["context"],
+                question,
+            )
+
+            # Format sources
+            sources = [
+                {
+                    "chunk_id": chunk["id"],
+                    "score": chunk["score"],
+                    "metadata": chunk.get("metadata", {}),
+                }
+                for chunk in retrieval_result["chunks"]
+            ]
+
+            total_duration = time.perf_counter() - query_start
+            record_rag_query(
+                collection=collection_name,
+                duration_seconds=total_duration,
+                retrieval_seconds=retrieval_result["retrieval_time_seconds"],
+                generation_seconds=generation_time_seconds,
+                status="success",
+            )
+            add_span_attributes(
+                num_sources=len(sources),
+                answer_length=len(answer),
+            )
+
+            return {
+                "answer": answer,
+                "sources": sources,
             }
-            for chunk in retrieval_result["chunks"]
-        ]
-        
-        return {
-            "answer": answer,
-            "sources": sources,
-        }
