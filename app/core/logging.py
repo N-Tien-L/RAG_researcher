@@ -5,12 +5,23 @@ import sys
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 from structlog.typing import EventDict
 
 
 def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
     """Add application context to log entries."""
     event_dict["app"] = "rag_researcher"
+    return event_dict
+
+
+def add_trace_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
+    """Add OpenTelemetry trace context to log entries."""
+    span = trace.get_current_span()
+    if span.is_recording():
+        ctx = span.get_span_context()
+        event_dict["trace_id"] = format(ctx.trace_id, "032x")
+        event_dict["span_id"] = format(ctx.span_id, "016x")
     return event_dict
 
 
@@ -37,6 +48,7 @@ def configure_logging(level: int = logging.INFO, json_logs: bool = True) -> None
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
         add_app_context,
+        add_trace_context,
     ]
 
     if json_logs:
@@ -68,6 +80,18 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
         Structured logger with bound context.
     """
     return structlog.get_logger(name)
+
+
+def bind_trace_context() -> None:
+    """Bind trace context into structlog contextvars."""
+    span = trace.get_current_span()
+    if not span.is_recording():
+        return
+    ctx = span.get_span_context()
+    structlog.contextvars.bind_contextvars(
+        trace_id=format(ctx.trace_id, "032x"),
+        span_id=format(ctx.span_id, "016x"),
+    )
 
 
 # RAG-specific logging helpers

@@ -1,8 +1,9 @@
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Query, Request, status
+from fastapi import Depends, FastAPI, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 import structlog
 from app.api.deps import current_user
 from app.cache.invalidation import (
@@ -15,6 +16,9 @@ from app.core.lifespan import lifespan
 from app.api.router import api_router
 from app.db import schemas
 from app.middleware.request_context import RequestContextMiddleware
+from app.middleware.observability import ObservabilityMiddleware
+from app.observability.metrics import get_metrics_registry
+from app.observability.tracing import configure_tracing, instrument_fastapi
 from app.services.exceptions import (
     AuthenticationError,
     BaseApplicationError,
@@ -35,6 +39,19 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
 
+    if settings.ENABLE_TRACING:
+        configure_tracing(
+            service_name=settings.OTEL_SERVICE_NAME,
+            jaeger_endpoint=settings.JAEGER_ENDPOINT,
+            enable_console_export=settings.OTEL_EXPORTER_TYPE == "console",
+            exporter_type=settings.OTEL_EXPORTER_TYPE,
+            sample_rate=settings.OTEL_TRACE_SAMPLE_RATE,
+        )
+        instrument_fastapi(app)
+
+    if settings.ENABLE_METRICS:
+        _ = get_metrics_registry()
+
     # -------------------------
     # Middleware
     # -------------------------
@@ -51,6 +68,9 @@ def create_app() -> FastAPI:
 
     # Request context middleware
     app.add_middleware(RequestContextMiddleware)
+
+    # Observability middleware
+    app.add_middleware(ObservabilityMiddleware)
 
     # -------------------------
     # Routes
@@ -189,7 +209,24 @@ def create_app() -> FastAPI:
     # -------------------------
     @app.get("/health", tags=["system"])
     def health():
-        return {"status": "ok"}
+        return {
+            "status": "ok",
+            "metrics_enabled": settings.ENABLE_METRICS,
+            "tracing_enabled": settings.ENABLE_TRACING,
+        }
+
+    @app.get("/metrics", tags=["system"])
+    async def metrics() -> Response:
+        """Prometheus metrics endpoint."""
+        if not settings.ENABLE_METRICS:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"detail": "Metrics collection is disabled"},
+            )
+        return Response(
+            content=generate_latest(get_metrics_registry()),
+            media_type=CONTENT_TYPE_LATEST,
+        )
 
     # -------------------------
     # Cache management

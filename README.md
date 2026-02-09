@@ -43,3 +43,49 @@ RATE_LIMIT_CLEANUP_INTERVAL=300            # Cleanup interval for old entries in
 - **Development**: `RATE_LIMIT_PER_MINUTE=300` (higher limit for testing)
 - **Production**: `RATE_LIMIT_PER_MINUTE=60` (balanced protection)
 - **Strict**: `RATE_LIMIT_PER_MINUTE=30` (high-security environments)
+
+## Observability
+
+The API ships with Prometheus metrics and OpenTelemetry tracing.
+
+### Enable or disable
+
+```bash
+ENABLE_METRICS=true
+ENABLE_TRACING=true
+OTEL_SERVICE_NAME=rag-researcher
+OTEL_EXPORTER_TYPE=jaeger   # jaeger | otlp | console
+JAEGER_ENDPOINT=http://localhost:14268/api/traces
+OTEL_TRACE_SAMPLE_RATE=1.0
+METRICS_SLOW_QUERY_THRESHOLD_MS=100
+```
+
+### Metrics endpoint
+
+- Prometheus scrape: `GET /metrics`
+- Health check includes observability flags: `GET /health`
+
+### Tracing (Jaeger)
+
+- Jaeger UI: `http://localhost:16686`
+- Collector endpoint: `http://localhost:14268/api/traces`
+
+### Key metrics
+
+- `http_request_duration_seconds`: API latency percentiles (p50/p95/p99)
+- `rag_query_duration_seconds`: End-to-end RAG latency
+- `rag_retrieval_duration_seconds`: Vector search duration
+- `rag_generation_duration_seconds`: LLM response time
+- `embedding_generation_duration_seconds`: Embedding latency
+- `cache_operations_total{result="hit"}`: Cache hit rate
+- `database_query_duration_seconds`: Database query performance
+- `active_requests`: Current in-flight requests
+- `ingestion_jobs_total{status="success"}`: Ingestion success rate
+
+### Example Prometheus queries
+
+- API request rate: `rate(http_requests_total[5m])`
+- API error rate: `rate(http_requests_total{status_code=~"5.."}[5m])`
+- RAG p95 latency: `histogram_quantile(0.95, rate(rag_query_duration_seconds_bucket[5m]))`
+- Cache hit rate: `rate(cache_operations_total{result="hit"}[5m]) / rate(cache_operations_total[5m])`
+- Slow DB queries: `rate(database_query_duration_seconds_bucket{le="0.1"}[5m])`
