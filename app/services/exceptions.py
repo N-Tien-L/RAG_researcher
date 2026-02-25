@@ -4,11 +4,16 @@ from typing import Any
 import structlog
 
 
-class ResourceNotFound(Exception):
-    pass
+class ServiceError(Exception):
+    """Base exception for service layer errors."""
 
-class ResourceConflict(Exception):
-    pass
+
+class ResourceNotFound(ServiceError):
+    """Raised when a requested resource does not exist."""
+
+
+class ResourceConflict(ServiceError):
+    """Raised when a resource already exists or conflicts with constraints."""
 
 
 class AuthenticationError(Exception):

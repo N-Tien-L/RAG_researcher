@@ -25,17 +25,21 @@ class _FakeResponse:
 def test_embed_query_prefixes_payload_with_query_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_payloads = []
 
+    # Create fake embedding with correct dimension (384)
+    fake_embedding = [0.1] * 384
+    
     def fake_post(url: str, json: dict, timeout: int):
         captured_payloads.append((url, json, timeout))
-        return _FakeResponse([[0.1, 0.2, 0.3]])
+        return _FakeResponse([fake_embedding])
 
     monkeypatch.setattr(huggingface_tei.requests, "post", fake_post)
     monkeypatch.setattr(huggingface_tei.settings, "REDIS_ENABLED", False)
+    monkeypatch.setattr(huggingface_tei.settings, "EMBEDDING_DIM", 384)
 
     embedder = HuggingFaceTEIEmbedder(base_url="http://tei", timeout=5)
     vector = asyncio.get_event_loop().run_until_complete(embedder.embed_query("hello world"))
 
-    assert vector == [0.1, 0.2, 0.3]
+    assert vector == fake_embedding
     assert captured_payloads == [
         ("http://tei/v1/embeddings", {"input": ["query: hello world"]}, 5)
     ]
@@ -43,7 +47,11 @@ def test_embed_query_prefixes_payload_with_query_mode(monkeypatch: pytest.Monkey
 
 def test_embed_documents_batches_by_max_size(monkeypatch: pytest.MonkeyPatch) -> None:
     payload_inputs = []
-    embeddings_queue = deque([[0.1], [0.2], [0.3]])
+    # Create fake embeddings with correct dimension (384)
+    fake_emb_1 = [0.1] * 384
+    fake_emb_2 = [0.2] * 384
+    fake_emb_3 = [0.3] * 384
+    embeddings_queue = deque([fake_emb_1, fake_emb_2, fake_emb_3])
 
     def fake_post(url: str, json: dict, timeout: int):
         batch_embeddings = [embeddings_queue.popleft() for _ in json["input"]]
@@ -52,6 +60,7 @@ def test_embed_documents_batches_by_max_size(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(huggingface_tei.requests, "post", fake_post)
     monkeypatch.setattr(huggingface_tei.settings, "REDIS_ENABLED", False)
+    monkeypatch.setattr(huggingface_tei.settings, "EMBEDDING_DIM", 384)
 
     embedder = HuggingFaceTEIEmbedder(base_url="http://tei", max_batch_size=2, mode="passage")
     vectors = asyncio.get_event_loop().run_until_complete(

@@ -8,8 +8,7 @@ from functools import wraps
 from typing import Any
 
 from opentelemetry import trace
-from opentelemetry.exporter.jaeger.thrift import JaegerExporter
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
@@ -22,20 +21,23 @@ _tracing_configured = False
 
 def configure_tracing(
     service_name: str,
-    jaeger_endpoint: str,
+    otlp_endpoint: str,
     enable_console_export: bool,
     *,
-    exporter_type: str = "jaeger",
+    exporter_type: str = "otlp",
     sample_rate: float = 1.0,
 ) -> None:
     """Configure OpenTelemetry tracing.
 
     Args:
         service_name: Service name for tracing.
-        jaeger_endpoint: Jaeger collector endpoint or OTLP endpoint.
+        otlp_endpoint: OTLP collector endpoint (gRPC).
         enable_console_export: Enable console span export.
-        exporter_type: Exporter type (jaeger/otlp/console).
+        exporter_type: Exporter type (otlp/console).
         sample_rate: Trace sample rate (0.0-1.0).
+        
+    Raises:
+        ValueError: If exporter_type is not supported.
     """
     global _tracing_configured
     if _tracing_configured:
@@ -48,13 +50,15 @@ def configure_tracing(
     )
 
     if exporter_type == "otlp":
-        exporter = OTLPSpanExporter(endpoint=jaeger_endpoint)
+        exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
         tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
     elif exporter_type == "console":
         tracer_provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
     else:
-        exporter = JaegerExporter(collector_endpoint=jaeger_endpoint)
-        tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
+        raise ValueError(
+            f"Unsupported exporter_type: {exporter_type}. "
+            f"Supported types: 'otlp', 'console'"
+        )
 
     if enable_console_export and exporter_type != "console":
         tracer_provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))

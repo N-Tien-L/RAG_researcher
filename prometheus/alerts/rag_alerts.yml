@@ -1,0 +1,210 @@
+# Prometheus Alert Rules for RAG Researcher
+groups:
+  - name: api_alerts
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(http_requests_total{status_code=~"5.."}[5m]) 
+            / 
+            rate(http_requests_total[5m])
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "High API error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%) on {{ $labels.path }}"
+          runbook: "https://runbooks.example.com/high-error-rate"
+
+      - alert: HighP95Latency
+        expr: |
+          histogram_quantile(0.95, 
+            rate(http_request_duration_seconds_bucket[5m])
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High API P95 latency detected"
+          description: "P95 latency is {{ $value | humanizeDuration }} (threshold: 2s) on {{ $labels.path }}"
+          runbook: "https://runbooks.example.com/high-latency"
+
+      - alert: HighActiveRequests
+        expr: active_requests > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High number of active requests"
+          description: "{{ $value }} active requests (threshold: 100)"
+
+  - name: rag_alerts
+    interval: 30s
+    rules:
+      - alert: RAGHighFailureRate
+        expr: |
+          (
+            rate(rag_queries_total{status="failure"}[5m]) 
+            / 
+            rate(rag_queries_total[5m])
+          ) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+          component: rag
+        annotations:
+          summary: "High RAG query failure rate"
+          description: "RAG failure rate is {{ $value | humanizePercentage }} (threshold: 10%) for collection {{ $labels.collection_name }}"
+          runbook: "https://runbooks.example.com/rag-failures"
+
+      - alert: RAGHighLatency
+        expr: |
+          histogram_quantile(0.95, 
+            rate(rag_query_duration_seconds_bucket[5m])
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: rag
+        annotations:
+          summary: "High RAG query latency"
+          description: "RAG P95 latency is {{ $value | humanizeDuration }} (threshold: 5s) for collection {{ $labels.collection_name }}"
+
+      - alert: RAGEmptyResults
+        expr: |
+          (
+            rate(rag_queries_total{status="empty"}[5m]) 
+            / 
+            rate(rag_queries_total[5m])
+          ) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          component: rag
+        annotations:
+          summary: "High rate of empty RAG results"
+          description: "{{ $value | humanizePercentage }} of queries return empty results (threshold: 30%)"
+
+      - alert: LLMGenerationSlow
+        expr: |
+          histogram_quantile(0.95, 
+            rate(rag_generation_duration_seconds_bucket[5m])
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "Slow LLM generation detected"
+          description: "LLM P95 generation time is {{ $value | humanizeDuration }} (threshold: 10s) for model {{ $labels.model }}"
+
+  - name: database_alerts
+    interval: 30s
+    rules:
+      - alert: DatabaseSlowQueries
+        expr: |
+          (
+            rate(database_query_duration_seconds_bucket{le="0.1"}[5m])
+            /
+            rate(database_query_duration_seconds_count[5m])
+          ) < 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "High rate of slow database queries"
+          description: "Only {{ $value | humanizePercentage }} of queries complete in < 100ms (threshold: 80%) for table {{ $labels.table }}"
+          runbook: "https://runbooks.example.com/slow-queries"
+
+      - alert: DatabasePoolExhaustion
+        expr: |
+          (database_pool_checked_out / database_pool_size) > 0.9
+        for: 3m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "Connection pool is {{ $value | humanizePercentage }} utilized (threshold: 90%)"
+          runbook: "https://runbooks.example.com/pool-exhaustion"
+
+      - alert: DatabaseHighErrorRate
+        expr: |
+          rate(database_queries_total{operation=~"INSERT|UPDATE|DELETE"}[5m]) > 0
+          and
+          increase(database_queries_total{operation=~"INSERT|UPDATE|DELETE"}[5m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database write operations failing"
+          description: "No successful write operations on table {{ $labels.table }}"
+
+  - name: cache_alerts
+    interval: 30s
+    rules:
+      - alert: LowCacheHitRate
+        expr: |
+          (
+            rate(cache_operations_total{result="hit"}[5m]) 
+            / 
+            rate(cache_operations_total[5m])
+          ) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 50%) for {{ $labels.cache_type }}"
+
+      - alert: CacheOperationsSlow
+        expr: |
+          histogram_quantile(0.95, 
+            rate(cache_operation_duration_seconds_bucket[5m])
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Slow cache operations detected"
+          description: "Cache P95 latency is {{ $value | humanizeDuration }} (threshold: 100ms) for {{ $labels.cache_type }}"
+
+  - name: ingestion_alerts
+    interval: 30s
+    rules:
+      - alert: IngestionFailureRate
+        expr: |
+          (
+            rate(ingestion_jobs_total{status="failure"}[5m]) 
+            / 
+            rate(ingestion_jobs_total[5m])
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          component: ingestion
+        annotations:
+          summary: "High ingestion failure rate"
+          description: "Ingestion failure rate is {{ $value | humanizePercentage }} (threshold: 20%) for {{ $labels.source_type }}"
+
+      - alert: EmbeddingGenerationSlow
+        expr: |
+          histogram_quantile(0.95, 
+            rate(embedding_generation_duration_seconds_bucket[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: embeddings
+        annotations:
+          summary: "Slow embedding generation"
+          description: "Embedding P95 generation time is {{ $value | humanizeDuration }} (threshold: 1s) for provider {{ $labels.provider }}"

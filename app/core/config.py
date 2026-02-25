@@ -113,10 +113,10 @@ class Settings(BaseSettings):
     ENABLE_METRICS: bool = os.getenv("ENABLE_METRICS", "true").lower() == "true"
     ENABLE_TRACING: bool = os.getenv("ENABLE_TRACING", "true").lower() == "true"
     OTEL_SERVICE_NAME: str = os.getenv("OTEL_SERVICE_NAME", "rag-researcher")
-    OTEL_EXPORTER_TYPE: str = os.getenv("OTEL_EXPORTER_TYPE", "jaeger")
-    JAEGER_ENDPOINT: str = os.getenv(
-        "JAEGER_ENDPOINT",
-        "http://localhost:14268/api/traces",
+    OTEL_EXPORTER_TYPE: str = os.getenv("OTEL_EXPORTER_TYPE", "otlp")
+    OTLP_ENDPOINT: str = os.getenv(
+        "OTLP_ENDPOINT",
+        "http://tempo:4317",
     )
     OTEL_TRACE_SAMPLE_RATE: float = float(
         os.getenv("OTEL_TRACE_SAMPLE_RATE", "1.0")
@@ -124,6 +124,10 @@ class Settings(BaseSettings):
     METRICS_SLOW_QUERY_THRESHOLD_MS: int = int(
         os.getenv("METRICS_SLOW_QUERY_THRESHOLD_MS", "100")
     )
+    
+    # Loki logging
+    LOKI_ENABLED: bool = os.getenv("LOKI_ENABLED", "true").lower() == "true"
+    LOKI_ENDPOINT: str = os.getenv("LOKI_ENDPOINT", "http://loki:3100")
 
     @property
     def REDIS_CONNECTION_URL(self) -> str:

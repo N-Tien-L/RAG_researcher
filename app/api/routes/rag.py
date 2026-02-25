@@ -2,13 +2,14 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
 from app.applications.rag_application import RAGApplicationService
 from app.db import schemas
+from app.services.exceptions import EmbeddingError, LLMError, VectorStoreError
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -40,12 +41,23 @@ async def query_rag(
     """
     rag_service = RAGApplicationService(db, top_k=5)
     
-    result = await rag_service.query(
-        question=request.question,
-        collection_name=request.collection_name,
-        source_id=request.source_id,
-        user_id=current_user.id,
-    )
+    try:
+        result = await rag_service.query(
+            question=request.question,
+            collection_name=request.collection_name,
+            source_id=request.source_id,
+            user_id=current_user.id,
+        )
+    except (EmbeddingError, LLMError, VectorStoreError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during RAG query",
+        ) from exc
 
     return RAGQueryResponse(
         answer=result["answer"],

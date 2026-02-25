@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import deps
 from app.applications.chat_application import ChatApplicationService
 from app.db import schemas
-from app.services.chat_service import ChatService, ServiceError
+from app.services.chat_service import ChatService
+from app.services.exceptions import ServiceError
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -69,7 +70,7 @@ async def send_message(
         # Just save user message (no AI response)
         user_msg_in = schemas.ChatMessageCreate(
             chat_id=request.chat_id,
-            role=schemas.MessageRole.user,
+            role=schemas.ChatRole.user,
             content=request.content,
         )
         user_msg = await chat_service.add_message_to_chat(user_msg_in)

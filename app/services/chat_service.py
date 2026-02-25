@@ -99,7 +99,16 @@ class ChatService:
         chat = await self.db.get(models.ChatSession, chat_session_id)
         if not chat:
             raise ResourceNotFound("Chat session not found")
-        return [schemas.ChatMessageRead.model_validate(msg) for msg in chat.messages]
+        
+        # Query messages explicitly to avoid lazy loading in async context
+        stmt = (
+            select(models.ChatMessage)
+            .where(models.ChatMessage.chat_id == chat_session_id)
+            .order_by(models.ChatMessage.created_at)
+        )
+        result = await self.db.execute(stmt)
+        messages = result.scalars().all()
+        return [schemas.ChatMessageRead.model_validate(msg) for msg in messages]
 
     async def add_message_to_chat(
         self, message_in: schemas.ChatMessageCreate

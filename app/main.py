@@ -42,7 +42,7 @@ def create_app() -> FastAPI:
     if settings.ENABLE_TRACING:
         configure_tracing(
             service_name=settings.OTEL_SERVICE_NAME,
-            jaeger_endpoint=settings.JAEGER_ENDPOINT,
+            otlp_endpoint=settings.OTLP_ENDPOINT,
             enable_console_export=settings.OTEL_EXPORTER_TYPE == "console",
             exporter_type=settings.OTEL_EXPORTER_TYPE,
             sample_rate=settings.OTEL_TRACE_SAMPLE_RATE,

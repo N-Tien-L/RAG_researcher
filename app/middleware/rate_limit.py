@@ -240,6 +240,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Add rate limit headers to response
         response.headers["X-RateLimit-Limit"] = str(self.settings.RATE_LIMIT_PER_MINUTE)
         response.headers["X-RateLimit-Remaining"] = str(remaining)
+        reset_time = int(time.time() + self.rate_limiter.window_seconds)
         response.headers["X-RateLimit-Reset"] = str(reset_time)
 
         return response

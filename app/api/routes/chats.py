@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api import deps
 from app.db import schemas
-from app.services.chat_service import ChatService, ServiceError
+from app.services.chat_service import ChatService
+from app.services.exceptions import ServiceError
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 

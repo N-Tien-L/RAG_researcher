@@ -6,4 +6,9 @@ __pycache__/
 uv.lock
 .pytest_cache/
 .mypy_cache/
-.github/
+
+# Runtime artifacts
+logs.txt
+.coverage
+htmlcov/
+uploads/

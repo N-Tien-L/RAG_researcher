@@ -1,24 +1,36 @@
-FROM python:3.12-slim
+# Stage 1: Giai đoạn xây dựng (Builder)
+FROM python:3.12-slim AS builder
 
-# Prevent Python from writing .pyc files and enable unbuffered logging
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV UV_PYTHON=python3.12
+# Cài đặt uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# Copy dependency files
+# Chỉ copy file quản lý thư viện để tận dụng cache của Docker
 COPY pyproject.toml uv.lock ./
 
-# Install dependencies using uv
-RUN uv sync --frozen --no-cache
+# Cài đặt dependencies vào folder .venv, không cài chính project
+# --no-dev: loại bỏ các thư viện dùng để test/linting nếu có
+RUN uv sync --frozen --no-cache --no-dev --no-install-project
 
-# copy the rest of the app
+# Stage 2: Giai đoạn chạy (Runtime) - Image cuối cùng sẽ dùng cái này
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Ensure uv binary is available in the runtime image
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Chỉ copy folder .venv (đã chứa mọi thư viện) từ stage builder
+COPY --from=builder /app/.venv /app/.venv
+
+# Copy source code và entrypoint
 COPY . .
+
+# Thiết kế entrypoint sử dụng môi trường ảo
+ENV PATH="/app/.venv/bin:$PATH"
+RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

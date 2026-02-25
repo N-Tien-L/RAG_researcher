@@ -21,8 +21,18 @@ from app.services.user_service import UserService
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login")
 
 
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Provide an async SQLAlchemy session per-request."""
+async def db_session(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AsyncGenerator[AsyncSession, None]:
+    """Provide an async SQLAlchemy session per-request.
+
+    Args:
+        db: Database session injected by FastAPI dependency system.
+
+    Yields:
+        AsyncSession: Live database session scoped to the request.
+    """
+
     async for session in get_db():
         yield session
 

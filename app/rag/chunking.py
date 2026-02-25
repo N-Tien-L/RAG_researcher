@@ -239,7 +239,6 @@ def chunk_extraction(
         return chunk_youtube_extraction(
             extraction,
             max_tokens=max_tokens,
-            overlap=overlap,
             source_id=source_id,
         )
 

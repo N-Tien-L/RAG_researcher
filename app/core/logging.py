@@ -8,6 +8,8 @@ import structlog
 from opentelemetry import trace
 from structlog.typing import EventDict
 
+from app.core.config import settings
+
 
 def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
     """Add application context to log entries."""
@@ -32,10 +34,37 @@ def configure_logging(level: int = logging.INFO, json_logs: bool = True) -> None
         level: Logging level.
         json_logs: If True, output JSON format. If False, use colored console output.
     """
+    # Configure standard logging handlers
+    handlers: list[logging.Handler] = []
+    
+    # Console handler (always enabled)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(level)
+    handlers.append(console_handler)
+    
+    # Loki handler (optional)
+    if settings.LOKI_ENABLED:
+        try:
+            from logging_loki import LokiHandler
+            
+            loki_handler = LokiHandler(
+                url=f"{settings.LOKI_ENDPOINT}/loki/api/v1/push",
+                tags={"service": "rag-researcher"},
+                version="1",
+            )
+            loki_handler.setLevel(level)
+            handlers.append(loki_handler)
+        except ImportError:
+            # Log warning if logging_loki is not installed
+            logging.warning(
+                "Loki logging enabled but python-logging-loki not installed. "
+                "Install with: pip install python-logging-loki"
+            )
+    
     # Configure standard logging
     logging.basicConfig(
         format="%(message)s",
-        stream=sys.stdout,
+        handlers=handlers,
         level=level,
     )
 

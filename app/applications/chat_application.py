@@ -50,7 +50,7 @@ class ChatApplicationService:
         # Save user message
         user_msg_in = schemas.ChatMessageCreate(
             chat_id=chat_session_id,
-            role=schemas.MessageRole.user,
+            role=schemas.ChatRole.user,
             content=user_message,
         )
         user_msg = await self.chat_service.add_message_to_chat(user_msg_in)
@@ -64,7 +64,7 @@ class ChatApplicationService:
         # Save assistant message
         assistant_msg_in = schemas.ChatMessageCreate(
             chat_id=chat_session_id,
-            role=schemas.MessageRole.assistant,
+            role=schemas.ChatRole.assistant,
             content=rag_result["answer"],
         )
         assistant_msg = await self.chat_service.add_message_to_chat(assistant_msg_in)

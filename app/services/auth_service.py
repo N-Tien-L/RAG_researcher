@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core import config
 from app.db import models, schemas
 from app.services.exceptions import AuthenticationError
 from app.utils.auth import TokenDecodeError, create_access_token, decode_access_token
@@ -52,9 +52,9 @@ class AuthService:
         claims = {"sub": str(user.id)}
         return create_access_token(
             claims=claims,
-            secret_key=settings.SECRET_KEY,
-            algorithm=settings.JWT_ALGORITHM,
-            expires_minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES,
+            secret_key=config.settings.SECRET_KEY,
+            algorithm=config.settings.JWT_ALGORITHM,
+            expires_minutes=config.settings.ACCESS_TOKEN_EXPIRE_MINUTES,
         )
 
     async def get_current_user(self, token: str) -> schemas.UserRead:
@@ -70,7 +70,11 @@ class AuthService:
             AuthenticationError: If token is invalid or user not found.
         """
         try:
-            payload = decode_access_token(token, settings.SECRET_KEY, settings.JWT_ALGORITHM)
+            payload = decode_access_token(
+                token,
+                config.settings.SECRET_KEY,
+                config.settings.JWT_ALGORITHM,
+            )
         except TokenDecodeError as exc:
             raise AuthenticationError("Invalid or expired token") from exc
 

@@ -1,0 +1,15 @@
+# Grafana Dashboard Provisioning Configuration
+apiVersion: 1
+
+providers:
+  - name: 'RAG Researcher Dashboards'
+    orgId: 1
+    folder: 'RAG Researcher'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
+      foldersFromFilesStructure: true

@@ -18,7 +18,8 @@ from app.api import deps
 from app.core.config import settings
 from app.db import schemas
 from app.ingestion.loaders import _extract_youtube_video_id
-from app.services.source_service import ServiceError, SourceService
+from app.services.exceptions import ServiceError
+from app.services.source_service import SourceService
 from app.utils.files import save_upload_file, validate_pdf_upload
 
 router = APIRouter(prefix="/sources", tags=["sources"])
