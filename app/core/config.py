@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     # -------------------------
     # Database
     # -------------------------
+    DATABASE_URL_OVERRIDE: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DATABASE_URL", "DB_URL", "DATABASE_URI"),
+        description="Optional full database URL override.",
+    )
     POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
     POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "changeme")
     POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
@@ -52,6 +57,8 @@ class Settings(BaseSettings):
     @property
     def DATABASE_URL(self) -> str:
         """Construct async database URL with asyncpg driver."""
+        if self.DATABASE_URL_OVERRIDE:
+            return self.DATABASE_URL_OVERRIDE
         return (
             f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"

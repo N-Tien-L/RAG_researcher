@@ -13,7 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 import os
 os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only"
-os.environ["DATABASE_URL"] = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/test_rag_db")
+# Ensure database credentials match CI and local docker-compose defaults
+os.environ.setdefault("POSTGRES_USER", "postgres")
+os.environ.setdefault("POSTGRES_PASSWORD", "changeme")
+os.environ.setdefault("POSTGRES_HOST", "localhost")
+os.environ.setdefault("POSTGRES_PORT", "5432")
+os.environ.setdefault("POSTGRES_DB", "test_rag_db")
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql+asyncpg://postgres:changeme@localhost:5432/test_rag_db",
+)
 os.environ["REDIS_ENABLED"] = "false"
 os.environ["ENABLE_METRICS"] = "false"
 os.environ["ENABLE_TRACING"] = "false"
