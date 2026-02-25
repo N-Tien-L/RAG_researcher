@@ -118,7 +118,8 @@ async def main() -> None:
     import sys
     
     # Default test database URL
-    test_db_url = "postgresql+asyncpg://postgres:postgres@localhost:5432/test_rag_db"
+    import os
+    test_db_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/test_rag_db")
     
     if len(sys.argv) < 2:
         print("Usage: python setup_test_db.py [setup|drop|cleanup]")

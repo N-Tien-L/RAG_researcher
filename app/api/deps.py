@@ -32,9 +32,7 @@ async def db_session(
     Yields:
         AsyncSession: Live database session scoped to the request.
     """
-
-    async for session in get_db():
-        yield session
+    yield db
 
 
 def user_service(db: Annotated[AsyncSession, Depends(db_session)]) -> UserService:

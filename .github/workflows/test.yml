@@ -61,6 +61,10 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test_rag_db
           SECRET_KEY: test-secret-key-for-ci
           REDIS_URL: redis://localhost:6379
+          REDIS_ENABLED: "false"
+          ENABLE_METRICS: "false"
+          ENABLE_TRACING: "false"
+          RATE_LIMIT_ENABLED: "false"
           TESTING: true
         run: |
           pytest --cov=app --cov-report=xml --cov-report=term-missing

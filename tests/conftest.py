@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 import os
 os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only"
-os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:postgres@localhost:5432/test_rag_db"
+os.environ["DATABASE_URL"] = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/test_rag_db")
 os.environ["REDIS_ENABLED"] = "false"
 os.environ["ENABLE_METRICS"] = "false"
 os.environ["ENABLE_TRACING"] = "false"
@@ -152,10 +152,12 @@ def test_user_token(test_settings: Settings, test_user: User) -> str:
     Returns:
         JWT access token string.
     """
+    from datetime import UTC
+    
     payload = {
         "sub": str(test_user.id),
-        "exp": datetime.utcnow() + timedelta(minutes=test_settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-        "iat": datetime.utcnow(),
+        "exp": datetime.now(UTC) + timedelta(minutes=test_settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        "iat": datetime.now(UTC),
     }
     token = jwt.encode(payload, test_settings.SECRET_KEY, algorithm="HS256")
     return token
