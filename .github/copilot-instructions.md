@@ -7,7 +7,9 @@ You are an expert Python Backend & AI Engineer. You are working on "RAG_research
 - **ORM**: SQLAlchemy (Use 2.0 style - Async preferred where applicable).
 - **Migrations**: Alembic.
 - **RAG Orchestration**: LangChain (Use LCEL - LangChain Expression Language).
-- **Vector DB**: PostgreSQL with `pgvector` extension.
+- **Vector DB**: PostgreSQL with `pgvector` extension (primary store; `chromadb` is for local notebooks only, not production).
+- **Caching**: Redis via `redis-py` (async). Use `RedisCacheClient` from `app/cache/redis_cache.py`.
+- **Observability**: OpenTelemetry (tracing → Tempo), Prometheus (metrics), Loki (log shipping), Grafana (dashboards).
 - **Data Validation**: Pydantic V2.
 - **Testing**: Pytest (with async support via `pytest-asyncio`).
 - **Deployment**: Docker-ready (Use environment variables for all configs).
@@ -23,10 +25,13 @@ app/
   │   ├── chat_service.py
   │   ├── ingestion_service.py
   │   └── rag_service.py
+  ├── cache/            # Redis caching layer
+  │   ├── redis_cache.py    # RedisCacheClient singleton & compute_cache_key()
+  │   └── invalidation.py   # Cache invalidation helpers
   ├── core/             # Core configuration and setup
   │   ├── config.py     # Pydantic settings
   │   ├── lifespan.py   # Application lifespan handlers
-  │   └── logging.py    # Logging configuration
+  │   └── logging.py    # Logging configuration (structlog)
   ├── db/               # Database layer
   │   ├── models.py     # SQLAlchemy models
   │   ├── schemas.py    # Pydantic schemas
@@ -35,6 +40,13 @@ app/
   │   └── huggingface_tei.py
   ├── ingestion/        # Data ingestion and loading
   │   └── loaders.py
+  ├── middleware/       # Starlette/FastAPI middleware
+  │   ├── observability.py   # OpenTelemetry trace context + Prometheus HTTP metrics
+  │   ├── rate_limit.py      # Sliding-window rate limiting
+  │   └── request_context.py # UUID request_id injection (X-Request-ID header)
+  ├── observability/    # Metrics and tracing setup
+  │   ├── metrics.py    # Prometheus counters, histograms (_REGISTRY)
+  │   └── tracing.py    # configure_tracing(), get_tracer(), trace_async_function()
   ├── rag/              # RAG-specific logic (NO business logic here)
   │   ├── chunking.py   # Text chunking strategies
   │   ├── pipeline.py   # RAG pipeline implementation (LCEL chains)
@@ -61,6 +73,9 @@ app/
 - `app/services/`: Business logic that may use RAG components. Database interactions allowed.
 - `app/applications/`: High-level orchestration between services and RAG.
 - `app/api/routes/`: HTTP handlers only. Delegate to `app/applications/` or `app/services/`.
+- `app/cache/`: Only Redis I/O. No business logic. Use `get_redis_client()` singleton everywhere.
+- `app/observability/`: Only metric/tracer definitions and setup. No business logic.
+- `app/middleware/`: Only request/response lifecycle concerns. No service calls.
 
 # Coding Standards
 
@@ -162,6 +177,17 @@ app/
 - Always use `async def` for I/O-bound operations (DB, API calls).
 - Use `asyncio.gather()` for concurrent operations.
 - Avoid blocking operations in async context (use `asyncio.to_thread()` if needed).
+
+## Middleware Stack
+The following middleware is registered in order (outermost → innermost):
+1. `RequestContextMiddleware` — generates a UUID `request_id`, binds it to `structlog` context vars, and returns it as the `X-Request-ID` response header.
+2. `ObservabilityMiddleware` — manages the OpenTelemetry trace span and records `http_requests_total` / `http_request_duration_seconds` Prometheus metrics. Injects `X-Trace-ID` and `X-Span-ID` response headers.
+3. `RateLimitMiddleware` — enforces a per-user / per-IP sliding window limit.
+
+**Rules**:
+- Never bypass the middleware stack by calling internal handlers directly.
+- `request.state.request_id` is always available inside route handlers.
+- Do **not** add additional `structlog.contextvars.bind_contextvars` calls for `request_id`; the middleware handles it.
 
 # SQLAlchemy 2.0 & pgvector Best Practices
 
@@ -343,28 +369,14 @@ app/
 # Logging & Observability
 
 ## Structured Logging
-- Use structured logging in `app/core/logging.py`.
-- Log all RAG operations (retrieval, generation, errors).
-- Include trace IDs for request correlation.
+- Obtain a logger via `get_logger(__name__)` from `app.core.logging` — never use `logging.getLogger()` directly.
+- `request_id` and `user_id` are bound automatically by `RequestContextMiddleware`; do not re-bind them in route handlers.
+- Use `info` for high-level operational events and `error` with full context variables for exceptions.
 - Example:
   ```python
-  import logging
-  import structlog
+  from app.core.logging import get_logger
   
-  # Configure structlog
-  structlog.configure(
-      processors=[
-          structlog.stdlib.filter_by_level,
-          structlog.stdlib.add_logger_name,
-          structlog.stdlib.add_log_level,
-          structlog.processors.TimeStamper(fmt="iso"),
-          structlog.processors.JSONRenderer()
-      ],
-      context_class=dict,
-      logger_factory=structlog.stdlib.LoggerFactory(),
-  )
-  
-  logger = structlog.get_logger()
+  logger = get_logger(__name__)
   
   # In RAG pipeline
   logger.info(
@@ -372,7 +384,14 @@ app/
       query=query,
       num_chunks_retrieved=len(chunks),
       response_length=len(response),
-      latency_ms=latency
+      latency_ms=latency,
+  )
+  
+  logger.error(
+      "rag_query_failed",
+      query=query,
+      error=str(exc),
+      exc_info=True,
   )
   ```
 
@@ -388,7 +407,7 @@ app/
       query=query,
       num_chunks=len(chunks),
       top_score=chunks[0].score if chunks else None,
-      retrieval_time_ms=retrieval_time
+      retrieval_time_ms=retrieval_time,
   )
   
   logger.info(
@@ -396,9 +415,107 @@ app/
       query=query,
       response_length=len(response),
       tokens_used=token_count,
-      generation_time_ms=generation_time
+      generation_time_ms=generation_time,
   )
   ```
+
+## OpenTelemetry Tracing
+- Call `get_tracer(__name__)` from `app.observability.tracing` **once at module level**.
+- Wrap significant operations (retrieval, generation, DB writes) in a span.
+- Add business-relevant attributes with `span.set_attribute()`.
+- Prefer the `@trace_async_function("span_name")` decorator for entire async functions.
+- Example:
+  ```python
+  from app.observability.tracing import get_tracer, trace_async_function, add_span_attributes
+  
+  tracer = get_tracer(__name__)
+  
+  # Context-manager style for a code block
+  async def retrieve_docs(query: str) -> list[Document]:
+      with tracer.start_as_current_span("rag.retrieve") as span:
+          span.set_attribute("rag.query", query)
+          docs = await _do_retrieval(query)
+          span.set_attribute("rag.num_docs", len(docs))
+          return docs
+  
+  # Decorator style for a whole function
+  @trace_async_function("rag.generate")
+  async def generate_answer(context: str, question: str) -> str:
+      add_span_attributes(rag_model=settings.LLM_MODEL)
+      return await llm.ainvoke(...)
+  ```
+
+## Prometheus Metrics
+- Use **only** the pre-defined counters and histograms in `app/observability/metrics.py`.
+- Register new application-level metrics in that same file inside `_REGISTRY`.
+- Always supply all required label values when recording observations.
+- Example:
+  ```python
+  from app.observability.metrics import (
+      rag_queries_total,
+      rag_query_duration_seconds,
+  )
+  import time
+  
+  start = time.perf_counter()
+  try:
+      result = await run_rag_pipeline(query, collection_name)
+      rag_queries_total.labels(collection_name=collection_name, status="success").inc()
+  except Exception:
+      rag_queries_total.labels(collection_name=collection_name, status="error").inc()
+      raise
+  finally:
+      rag_query_duration_seconds.labels(collection_name=collection_name).observe(
+          time.perf_counter() - start
+      )
+  ```
+
+# Caching Best Practices
+
+## Redis Client
+- Always use the module-level `get_redis_client()` from `app.cache.redis_cache` — never construct `RedisCacheClient` directly outside of `lifespan.py`.
+- The client connects lazily; connection is verified in `lifespan.py` via `connect()`.
+- Graceful failure is built-in: all methods return `None` / `False` / `0` when Redis is unavailable. Do **not** add extra `try-except` wrappers around cache calls.
+- Example:
+  ```python
+  from app.cache.redis_cache import get_redis_client, compute_cache_key
+  import json
+  
+  async def get_cached_embedding(text: str) -> list[float] | None:
+      cache = await get_redis_client()
+      key = compute_cache_key("embedding", text)
+      raw = await cache.get(key)
+      return json.loads(raw) if raw else None
+  
+  async def set_cached_embedding(
+      text: str, embedding: list[float], ttl: int = 3600
+  ) -> None:
+      cache = await get_redis_client()
+      key = compute_cache_key("embedding", text)
+      await cache.set(key, json.dumps(embedding), ttl=ttl)
+  ```
+
+## Key Naming
+- Use `compute_cache_key(*args, **kwargs)` to generate deterministic SHA-256 hash keys for complex inputs.
+- Do **not** manually prepend `settings.CACHE_KEY_PREFIX`; `RedisCacheClient._make_key()` handles it.
+- Adopt a consistent namespace prefix pattern in your arguments: `("namespace", primary_input)`.
+
+## Cache Invalidation
+- Use `clear_pattern(pattern)` for bulk invalidation (e.g., after a source document is re-ingested).
+- Provide the pattern **without** the global prefix (it is added automatically).
+- Example:
+  ```python
+  from app.cache.redis_cache import get_redis_client
+  
+  async def invalidate_source_cache(source_id: str) -> None:
+      cache = await get_redis_client()
+      deleted = await cache.clear_pattern(f"source:{source_id}:*")
+      logger.info("cache_invalidated", source_id=source_id, keys_deleted=deleted)
+  ```
+
+## Serialization
+- Redis stores strings only. Serialize/deserialize complex objects with `json.dumps` / `json.loads`.
+- For binary data (e.g., raw embeddings), use `base64` encoding before storing.
 
 # Testing Guidelines
 
