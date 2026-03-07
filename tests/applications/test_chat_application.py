@@ -78,6 +78,7 @@ class TestChatApplicationService:
         service.rag_service.query.assert_called_once_with(
             question="What is the capital of Spain?",
             collection_name="test_collection",
+            chat_history=[],
         )
 
     async def test_send_message_with_rag_empty_response(
