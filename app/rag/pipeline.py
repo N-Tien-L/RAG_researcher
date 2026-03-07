@@ -4,9 +4,12 @@ import asyncio
 import time
 from typing import Any
 
+import httpx
 from langchain_community.chat_models import ChatOllama
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+
+from app.llm.kaggle_client import KaggleChatModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import (
     retry,
@@ -25,7 +28,8 @@ from app.observability.metrics import (
     record_rag_query,
 )
 from app.observability.tracing import add_span_attributes, add_span_event, trace_context_manager
-from app.rag.prompts.qa import QA_PROMPT_V1
+from app.rag.prompts.qa import QA_CONVERSATIONAL_PROMPT_V1
+from app.db import schemas as db_schemas
 from app.rag.retrieval import retrieve_chunks
 from app.services.exceptions import (
     EmbeddingError,
@@ -55,12 +59,21 @@ class RAGPipeline:
             mode="query",
         )
         
-        # Initialize LLM
-        self.llm = ChatOllama(
-            model=settings.OLLAMA_MODEL,
-            base_url=settings.OLLAMA_URL,
-            temperature=settings.OLLAMA_TEMPERATURE,
-        )
+        # Initialize LLM based on configured provider
+        if settings.LLM_PROVIDER == "kaggle":
+            self.llm = KaggleChatModel(
+                api_url=settings.KAGGLE_LLM_URL,
+                api_key=settings.KAGGLE_LLM_API_KEY,
+                max_tokens=settings.KAGGLE_LLM_MAX_TOKENS,
+                temperature=settings.KAGGLE_LLM_TEMPERATURE,
+                timeout=float(settings.LLM_TIMEOUT),
+            )
+        else:
+            self.llm = ChatOllama(
+                model=settings.OLLAMA_MODEL,
+                base_url=settings.OLLAMA_URL,
+                temperature=settings.OLLAMA_TEMPERATURE,
+            )
 
     async def _retrieve_and_format(
         self, db: AsyncSession, query: str, collection_name: str, where: dict[str, Any] | None
@@ -142,25 +155,66 @@ class RAGPipeline:
             "retrieval_time_seconds": retrieval_time_ms / 1000,
         }
 
+    @staticmethod
+    def _to_langchain_messages(history: list[db_schemas.ChatMessageRead]) -> list[BaseMessage]:
+        """Convert DB chat messages to LangChain message objects.
+
+        Skips system-role messages — those are owned by the prompt template.
+
+        Args:
+            history: Ordered list of ChatMessageRead from the database.
+
+        Returns:
+            List of HumanMessage / AIMessage instances.
+        """
+        result: list[BaseMessage] = []
+        for msg in history:
+            if msg.role == db_schemas.ChatRole.user:
+                result.append(HumanMessage(content=msg.content))
+            elif msg.role == db_schemas.ChatRole.assistant:
+                result.append(AIMessage(content=msg.content))
+            # system role skipped — handled by the prompt template
+        return result
+
     @retry(
         stop=stop_after_attempt(settings.LLM_MAX_RETRIES),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((asyncio.TimeoutError, ConnectionError)),
+        retry=retry_if_exception_type(
+            (asyncio.TimeoutError, ConnectionError, httpx.TimeoutException, httpx.ConnectError)
+        ),
     )
     async def _generate_answer(
-        self, context: str, question: str
+        self, context: str, question: str, chat_history: list[BaseMessage] | None = None
     ) -> tuple[str, float]:
-        """Generate answer with retry logic, timeout, and LLM response caching."""
+        """Generate answer with retry logic, timeout, and LLM response caching.
+
+        Args:
+            context: Formatted RAG document chunks.
+            question: Current user question.
+            chat_history: Prior conversation turns as LangChain messages.
+        """
+        if chat_history is None:
+            chat_history = []
+
+        # Build a provider-agnostic cache key
+        if settings.LLM_PROVIDER == "kaggle":
+            _model_id = f"kaggle:{settings.KAGGLE_LLM_URL}"
+            _temperature = settings.KAGGLE_LLM_TEMPERATURE
+        else:
+            _model_id = settings.OLLAMA_MODEL
+            _temperature = settings.OLLAMA_TEMPERATURE
+
+        history_fingerprint = str([m.content for m in chat_history])
         cache_key = (
-            f"llm:{settings.OLLAMA_MODEL}:"
-            f"{compute_cache_key(context, question, settings.OLLAMA_MODEL, settings.OLLAMA_TEMPERATURE)}"
+            f"llm:{_model_id}:"
+            f"{compute_cache_key(context, question, history_fingerprint, _model_id, _temperature)}"
         )
 
         with trace_context_manager(
             "rag.generation",
             {
-                "model": settings.OLLAMA_MODEL,
-                "temperature": settings.OLLAMA_TEMPERATURE,
+                "model": _model_id,
+                "temperature": _temperature,
                 "context_length": len(context),
             },
         ):
@@ -185,21 +239,17 @@ class RAGPipeline:
             start = time.perf_counter()
 
             # Build LCEL chain
-            chain = (
-                RunnableParallel(
-                    context=RunnablePassthrough(),
-                    question=RunnablePassthrough(),
-                )
-                | QA_PROMPT_V1
-                | self.llm
-                | StrOutputParser()
-            )
+            chain = QA_CONVERSATIONAL_PROMPT_V1 | self.llm | StrOutputParser()
 
             # Invoke with timeout
             try:
                 with trace_context_manager("rag.llm_invoke"):
                     response = await asyncio.wait_for(
-                        chain.ainvoke({"context": context, "question": question}),
+                        chain.ainvoke({
+                            "context": context, 
+                            "question": question,
+                            "chat_history": chat_history
+                            }),
                         timeout=settings.LLM_TIMEOUT,
                     )
             except asyncio.TimeoutError as exc:
@@ -210,13 +260,13 @@ class RAGPipeline:
                 )
                 raise LLMError(
                     message=f"LLM response timed out after {settings.LLM_TIMEOUT}s",
-                    model=settings.OLLAMA_MODEL,
+                    model=_model_id,
                     **get_request_context_data(),
                 ) from exc
             except Exception as exc:
                 raise LLMError(
                     message="Failed to generate answer from LLM",
-                    model=settings.OLLAMA_MODEL,
+                    model=_model_id,
                     **get_request_context_data(),
                 ) from exc
 
@@ -227,7 +277,7 @@ class RAGPipeline:
                 logger,
                 query=question,
                 response_length=len(response),
-                tokens_used=None,  # Ollama doesn't provide token count easily
+                tokens_used=None,
                 generation_time_ms=generation_time_seconds * 1000,
             )
 
@@ -245,15 +295,17 @@ class RAGPipeline:
         question: str,
         collection_name: str,
         where: dict[str, Any] | None = None,
+        chat_history: list[BaseMessage] | None = None,
     ) -> dict[str, Any]:
         """Execute RAG query: retrieve + generate.
-        
+
         Args:
             db: Async database session.
             question: User question.
             collection_name: Collection to search in.
             where: Optional metadata filters.
-            
+            chat_history: Prior conversation turns as LangChain messages.
+
         Returns:
             Dictionary with 'answer' and 'sources' keys.
         """
@@ -288,6 +340,7 @@ class RAGPipeline:
             answer, generation_time_seconds = await self._generate_answer(
                 retrieval_result["context"],
                 question,
+                chat_history=chat_history or []
             )
 
             # Format sources

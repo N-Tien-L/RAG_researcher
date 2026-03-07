@@ -6,11 +6,20 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+      - venv_data:/app/.venv
     environment:
       POSTGRES_HOST: postgres
       REDIS_HOST: redis
       TEI_URL: http://host.docker.internal:8080
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_URL: http://ollama:11434
+      LLM_TIMEOUT: "180"
+      # Set to "kaggle" to use the Kaggle LitServe endpoint instead of Ollama
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      KAGGLE_LLM_URL: ${KAGGLE_LLM_URL:-}
+      KAGGLE_LLM_API_KEY: ${KAGGLE_LLM_API_KEY:-}
+      KAGGLE_LLM_MAX_TOKENS: ${KAGGLE_LLM_MAX_TOKENS:-1024}
+      KAGGLE_LLM_TEMPERATURE: ${KAGGLE_LLM_TEMPERATURE:-0.2}
+      CHAT_HISTORY_MAX_TURNS: ${CHAT_HISTORY_MAX_TURNS:-10}
       ENABLE_METRICS: "true"
       ENABLE_TRACING: "false"
       LOKI_ENDPOINT: http://loki:3100
@@ -22,6 +31,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_started
     networks:
       - postgres
 
@@ -58,6 +69,17 @@ services:
       - postgres
 
 
+
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - postgres
 
   loki:
     image: grafana/loki:latest
@@ -108,9 +130,10 @@ volumes:
   postgres_data:
   redis_data:
   prometheus_data:
-
   loki_data:
   grafana_data:
+  venv_data:
+  ollama_data:
 
 networks:
   postgres:

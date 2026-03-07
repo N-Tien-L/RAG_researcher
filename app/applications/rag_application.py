@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.db import schemas as db_schemas
 from app.rag.pipeline import RAGPipeline
 
 logger = get_logger(__name__)
@@ -30,15 +31,17 @@ class RAGApplicationService:
         collection_name: str,
         source_id: str | None = None,
         user_id: UUID | None = None,
+        chat_history: list[db_schemas.ChatMessageRead] | None = None,
     ) -> dict[str, Any]:
         """Execute RAG query with optional filtering.
-        
+
         Args:
             question: User question.
             collection_name: Collection to search in.
             source_id: Optional filter by source ID.
             user_id: Optional user ID for logging/tracking.
-            
+            chat_history: Prior conversation turns from the DB.
+
         Returns:
             Dictionary with 'answer' and 'sources'.
         """
@@ -54,12 +57,16 @@ class RAGApplicationService:
         if source_id:
             where["source_id"] = source_id
 
+        # Convert DB history to LangChain messages
+        lc_history = RAGPipeline._to_langchain_messages(chat_history or [])
+
         # Execute RAG pipeline
         result = await self.pipeline.query(
             db=self.db,
             question=question,
             collection_name=collection_name,
             where=where if where else None,
+            chat_history=lc_history,
         )
 
         logger.info(

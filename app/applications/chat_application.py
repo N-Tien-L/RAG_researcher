@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.db import schemas
 from app.services.chat_service import ChatService
@@ -47,6 +48,13 @@ class ChatApplicationService:
             message_length=len(user_message),
         )
 
+        # Fetch history BEFORE saving the new user message so the current
+        # turn is excluded and no stripping is needed.
+        raw_history = await self.chat_service.get_chat_history(chat_session_id)
+        # Cap history to avoid exceeding the model's context window.
+        max_messages = settings.CHAT_HISTORY_MAX_TURNS * 2
+        trimmed_history = raw_history[-max_messages:] if max_messages > 0 else []
+
         # Save user message
         user_msg_in = schemas.ChatMessageCreate(
             chat_id=chat_session_id,
@@ -55,10 +63,11 @@ class ChatApplicationService:
         )
         user_msg = await self.chat_service.add_message_to_chat(user_msg_in)
 
-        # Get RAG response
+        # Get RAG response with conversation history
         rag_result = await self.rag_service.query(
             question=user_message,
             collection_name=collection_name,
+            chat_history=trimmed_history,
         )
 
         # Save assistant message

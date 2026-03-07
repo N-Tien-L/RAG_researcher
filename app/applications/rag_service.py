@@ -20,7 +20,7 @@ class RagService:
         tei_url = get_env("TEI_URL", "http://localhost:8080")
         self.embedder = HuggingFaceTEIEmbedder(base_url=tei_url, mode="query")
 
-        model = get_env("OLLAMA_MODEL", "gemma3:1b") or "gemma3:1b"
+        model = get_env("OLLAMA_MODEL", "llama3.2:3b") or "llama3.2:3b"
         base_url = get_env("OLLAMA_URL", "http://localhost:11434")
         temperature = float(get_env("OLLAMA_TEMPERATURE", "0.2") or "0.2")
         self.llm = ChatOllama(model=model, base_url=base_url, temperature=temperature)

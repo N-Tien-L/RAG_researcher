@@ -80,11 +80,23 @@ class Settings(BaseSettings):
     # -------------------------
     # LLM / Models
     # -------------------------
-    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "gemma3:1b")
+    # Set LLM_PROVIDER to "ollama" (default) or "kaggle" to switch backends.
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
+
+    # Ollama settings (used when LLM_PROVIDER=ollama)
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
     OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://localhost:11434")
     OLLAMA_TEMPERATURE: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))
-    LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "30"))
+
+    # Kaggle LitServe settings (used when LLM_PROVIDER=kaggle)
+    KAGGLE_LLM_URL: str = os.getenv("KAGGLE_LLM_URL", "")
+    KAGGLE_LLM_API_KEY: str | None = os.getenv("KAGGLE_LLM_API_KEY", None)
+    KAGGLE_LLM_MAX_TOKENS: int = int(os.getenv("KAGGLE_LLM_MAX_TOKENS", "1024"))
+    KAGGLE_LLM_TEMPERATURE: float = float(os.getenv("KAGGLE_LLM_TEMPERATURE", "0.2"))
+
+    LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "90"))
     LLM_MAX_RETRIES: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
+    CHAT_HISTORY_MAX_TURNS: int = int(os.getenv("CHAT_HISTORY_MAX_TURNS", "10"))
 
     # -------------------------
     # Auth

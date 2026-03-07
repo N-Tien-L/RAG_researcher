@@ -65,6 +65,9 @@ def test_rag_pipeline_retrieve_invokes_embedder_and_retrieval(monkeypatch: pytes
         "HuggingFaceTEIEmbedder",
         MagicMock(return_value=fake_embedder),
     )
+    # Prevent real LLM client instantiation regardless of LLM_PROVIDER setting
+    monkeypatch.setattr(pipeline_module, "ChatOllama", MagicMock())
+    monkeypatch.setattr(pipeline_module, "KaggleChatModel", MagicMock())
 
     # Mock chunks with expected structure (dict with text, score, etc.)
     retrieved_chunks = [
