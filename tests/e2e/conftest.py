@@ -28,6 +28,12 @@ E2E_ANSWER: str = "E2E test answer."
 #: Collection name used for all e2e seeded data.
 E2E_COLLECTION: str = "e2e_collection"
 
+#: Fake PDF extraction dict returned by mocked extract_from_pdf in ingestion tests.
+E2E_PDF_EXTRACTION: dict = {
+    "page_texts": {"page_1": "RAG stands for Retrieval-Augmented Generation. It combines retrieval and generation."},
+    "metadata": {"source_type": "pdf", "total_pages": 1},
+}
+
 
 # ---------------------------------------------------------------------------
 # External-service mocks (autouse → active for every e2e test)
@@ -126,3 +132,31 @@ async def seeded_chunks(
     await test_db_session.commit()
     await test_db_session.refresh(chunk)
     return chunk, seeded_source
+
+
+@pytest_asyncio.fixture
+async def seeded_source_processing(
+    test_db_session: AsyncSession,
+    test_user: User,
+) -> Source:
+    """Insert a Source with status='processing' ready for ingestion pipeline tests.
+
+    Args:
+        test_db_session: Per-test async DB session.
+        test_user: Pre-existing test user to own the source.
+
+    Returns:
+        Persisted Source instance with status='processing'.
+    """
+    source = Source(
+        user_id=test_user.id,
+        type="pdf",
+        title="E2E Ingestion Test Document",
+        status="processing",
+        collection_name=E2E_COLLECTION,
+        source_uri="file://e2e/ingestion_test.pdf",
+    )
+    test_db_session.add(source)
+    await test_db_session.commit()
+    await test_db_session.refresh(source)
+    return source
