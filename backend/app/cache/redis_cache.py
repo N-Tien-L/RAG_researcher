@@ -158,7 +158,17 @@ class RedisCacheClient:
     # ------------------------------------------------------------------
 
     def _make_key(self, key: str) -> str:
-        """Prepend key prefix for namespace isolation."""
+        """Prepend the configured key prefix for namespace isolation.
+
+        Prevents key collisions between different environments or services
+        sharing the same Redis instance.
+
+        Args:
+            key: Raw cache key (e.g. ``\"embedding:doc:{hash}\"``).
+
+        Returns:
+            str: Namespaced key in the form ``\"{prefix}:{key}\"``.
+        """
         return f"{self._key_prefix}:{key}"
 
     # ------------------------------------------------------------------

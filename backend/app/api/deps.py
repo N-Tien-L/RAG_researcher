@@ -18,6 +18,7 @@ from app.services.source_service import SourceService
 from app.services.user_service import UserService
 
 
+# tokenUrl must match the login endpoint path for OAuth2 autodiscover in OpenAPI docs
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login")
 
 
@@ -36,22 +37,50 @@ async def db_session(
 
 
 def user_service(db: Annotated[AsyncSession, Depends(db_session)]) -> UserService:
-    """Dependency to inject UserService with a live DB session."""
+    """Inject a ``UserService`` instance scoped to the current request.
+
+    Args:
+        db: Database session provided by ``db_session`` dependency.
+
+    Returns:
+        UserService: Service instance backed by the request-scoped session.
+    """
     return UserService(db)
 
 
 def auth_service(db: Annotated[AsyncSession, Depends(db_session)]) -> AuthService:
-    """Dependency to inject AuthService with a live DB session."""
+    """Inject an ``AuthService`` instance scoped to the current request.
+
+    Args:
+        db: Database session provided by ``db_session`` dependency.
+
+    Returns:
+        AuthService: Service instance backed by the request-scoped session.
+    """
     return AuthService(db)
 
 
 def chat_service(db: Annotated[AsyncSession, Depends(db_session)]) -> ChatService:
-    """Dependency to inject ChatService with a live DB session."""
+    """Inject a ``ChatService`` instance scoped to the current request.
+
+    Args:
+        db: Database session provided by ``db_session`` dependency.
+
+    Returns:
+        ChatService: Service instance backed by the request-scoped session.
+    """
     return ChatService(db)
 
 
 def source_service(db: Annotated[AsyncSession, Depends(db_session)]) -> SourceService:
-    """Dependency to inject SourceService with a live DB session."""
+    """Inject a ``SourceService`` instance scoped to the current request.
+
+    Args:
+        db: Database session provided by ``db_session`` dependency.
+
+    Returns:
+        SourceService: Service instance backed by the request-scoped session.
+    """
     return SourceService(db)
 
 
@@ -59,7 +88,19 @@ async def current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
     service: Annotated[AuthService, Depends(auth_service)],
 ) -> schemas.UserRead:
-    """Get current authenticated user from JWT token."""
+    """Resolve the authenticated user from the Bearer token.
+
+    Args:
+        token: JWT Bearer token extracted from the ``Authorization`` header.
+        service: Auth service for token validation and user lookup.
+
+    Returns:
+        schemas.UserRead: The authenticated user's data.
+
+    Raises:
+        HTTPException: 401 Unauthorized if the token is invalid, expired, or
+            the associated user no longer exists.
+    """
     try:
         user = await service.get_current_user(token)
         structlog.contextvars.bind_contextvars(user_id=str(user.id))

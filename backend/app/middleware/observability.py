@@ -1,4 +1,11 @@
-"""Observability middleware for metrics and tracing."""
+"""Observability middleware for HTTP metrics and distributed tracing.
+
+Attaches an OpenTelemetry span to every request (``http.request``) and
+records Prometheus metrics via :func:`~app.observability.metrics.record_http_request`.
+The span trace/span IDs are propagated to response headers as
+``X-Trace-ID`` and ``X-Span-ID`` so callers can correlate logs in Loki
+and traces in Tempo.
+"""
 
 from __future__ import annotations
 
@@ -18,12 +25,43 @@ from app.observability.tracing import get_tracer
 
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
-    """Attach metrics and tracing to incoming requests."""
+    """ASGI middleware that adds distributed tracing and Prometheus metrics.
+
+    For every HTTP request this middleware:
+
+    1. Opens an OpenTelemetry span (``http.request``) with method, path, and
+       request/user IDs as attributes.
+    2. Increments the ``active_requests`` Prometheus gauge while processing.
+    3. Calls :func:`~app.observability.metrics.record_http_request` in the
+       ``finally`` block to record latency, method, path, and status code.
+    4. Injects ``X-Trace-ID`` and ``X-Span-ID`` response headers for
+       log-trace correlation (e.g. Grafana Loki + Tempo).
+    5. Records the span status as ERROR and attaches the exception if an
+       unhandled exception propagates.
+
+    Metrics collection is gated by ``settings.ENABLE_METRICS`` so it can
+    be disabled in test environments.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
+        """Process one request: open span, record metrics, inject trace headers.
+
+        Args:
+            request: Incoming Starlette/FastAPI request.
+            call_next: ASGI callable that forwards the request to the next
+                middleware or route handler.
+
+        Returns:
+            Response: The downstream response with ``X-Trace-ID`` and
+            ``X-Span-ID`` headers appended.
+
+        Raises:
+            Exception: Any unhandled exception from downstream is re-raised
+                after being recorded on the active span.
+        """
         tracer = get_tracer(__name__)
         method = request.method
         path = request.url.path

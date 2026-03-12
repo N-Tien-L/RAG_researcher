@@ -1,4 +1,12 @@
-"""Lightweight RAG service for answering questions over stored chunks."""
+"""Lightweight synchronous RAG service wrapping retrieval and Ollama generation.
+
+This module provides a self-contained, database-free alternative to
+:class:`~app.applications.rag_application.RAGApplicationService`.  It is
+primarily used in notebooks and standalone scripts where the full async
+application stack is not running.
+
+See :class:`RagService` for details.
+"""
 
 from typing import Dict, List, Optional
 

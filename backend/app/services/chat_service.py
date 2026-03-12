@@ -1,4 +1,10 @@
-"""Business logic for chat sessions and messages."""
+"""Business logic for chat session and message management.
+
+Provides :class:`ChatService` which handles ``ChatSession``,
+``ChatMessage``, and ``ChatSessionSource`` records.  Route handlers in
+``api/routes/chats.py`` and ``api/routes/messages.py`` consume this
+service via the ``deps.chat_service`` FastAPI dependency.
+"""
 
 from __future__ import annotations
 

@@ -27,6 +27,14 @@ async_session_maker: async_sessionmaker[AsyncSession] | None = None
 
 
 def _extract_operation(statement: str) -> str:
+    """Extract the SQL operation keyword from a statement.
+
+    Args:
+        statement: Raw SQL statement string.
+
+    Returns:
+        Uppercase operation name (e.g. ``SELECT``, ``INSERT``) or ``UNKNOWN``.
+    """
     match = re.match(r"^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)", statement, re.I)
     if match:
         return match.group(1).upper()
@@ -34,6 +42,15 @@ def _extract_operation(statement: str) -> str:
 
 
 def _extract_table(statement: str, operation: str) -> str:
+    """Extract the primary table name from a SQL statement.
+
+    Args:
+        statement: Raw SQL statement string.
+        operation: Uppercase SQL operation keyword (from ``_extract_operation``).
+
+    Returns:
+        Table name string or ``'unknown'`` when extraction fails.
+    """
     if operation == "SELECT" or operation == "DELETE":
         pattern = r"\bFROM\s+([\w\"\.]+)"
     elif operation == "INSERT":
@@ -50,6 +67,16 @@ def _extract_table(statement: str, operation: str) -> str:
 
 
 def _register_query_metrics(sync_engine: Engine) -> None:
+    """Attach SQLAlchemy event listeners to record per-query Prometheus metrics.
+
+    Registers ``before_cursor_execute`` / ``after_cursor_execute`` event
+    listeners on the provided sync engine.  On each query, the elapsed time
+    is recorded via ``record_database_query()`` and a slow-query warning is
+    emitted if the duration exceeds ``settings.METRICS_SLOW_QUERY_THRESHOLD_MS``.
+
+    Args:
+        sync_engine: The synchronous underlying engine (``async_engine.sync_engine``).
+    """
     @event.listens_for(sync_engine, "before_cursor_execute")
     def before_cursor_execute(
         conn: Engine,

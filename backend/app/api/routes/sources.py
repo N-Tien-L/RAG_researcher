@@ -37,7 +37,26 @@ async def upload_pdf_source(
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
     service: Annotated[SourceService, Depends(deps.source_service)],
 ) -> schemas.SourceRead:
-    """Upload a PDF file as a source."""
+    """Upload a PDF file and register it as a new source.
+
+    Validates the upload, saves it to ``settings.UPLOAD_DIR``, then creates
+    a ``Source`` record with ``status=processing`` pending the
+    ``/{source_id}/process`` call.
+
+    Args:
+        file: Multipart PDF upload.  Must be ``application/pdf``; max 20 MB.
+        title: Human-readable title for the source.
+        collection_name: Vector-store collection to index this source into.
+        current_user: Authenticated owner of the new source.
+        service: Source service for database persistence.
+
+    Returns:
+        schemas.SourceRead: The newly created source record.
+
+    Raises:
+        HTTPException: 400 Bad Request if the file is not a valid PDF.
+        HTTPException: 500 Internal Server Error if persistence fails.
+    """
     try:
         validate_pdf_upload(file)
         saved_path = save_upload_file(file, settings.UPLOAD_DIR)
@@ -77,7 +96,25 @@ async def create_youtube_source(
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
     service: Annotated[SourceService, Depends(deps.source_service)],
 ) -> schemas.SourceRead:
-    """Create a YouTube video source."""
+    """Register a YouTube video as a new source.
+
+    Extracts the ``video_id`` from the URL, then creates a ``Source`` record
+    with ``status=processing`` pending the ``/{source_id}/process`` call.
+
+    Args:
+        url: Full YouTube watch URL (e.g. ``https://www.youtube.com/watch?v=…``).
+        title: Human-readable title for the source.
+        collection_name: Vector-store collection to index this source into.
+        current_user: Authenticated owner of the new source.
+        service: Source service for database persistence.
+
+    Returns:
+        schemas.SourceRead: The newly created source record.
+
+    Raises:
+        HTTPException: 400 Bad Request if the URL does not contain a valid YouTube video ID.
+        HTTPException: 500 Internal Server Error if persistence fails.
+    """
     video_id = _extract_youtube_video_id(url)
     if not video_id:
         raise HTTPException(
@@ -113,7 +150,20 @@ async def get_source(
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
     service: Annotated[SourceService, Depends(deps.source_service)],
 ) -> schemas.SourceRead:
-    """Get source by ID."""
+    """Retrieve a source by its ID.
+
+    Args:
+        source_id: UUID of the source to retrieve.
+        current_user: Authenticated user; must be the source owner.
+        service: Source service for database lookup.
+
+    Returns:
+        schemas.SourceRead: The requested source record.
+
+    Raises:
+        HTTPException: 404 Not Found if the source does not exist.
+        HTTPException: 403 Forbidden if the caller is not the source owner.
+    """
     try:
         source = await service.get_source(source_id)
     except ServiceError as exc:
@@ -141,7 +191,17 @@ async def list_sources(
     skip: int = 0,
     limit: int = 100,
 ) -> list[schemas.SourceRead]:
-    """List sources for current user with pagination."""
+    """List all sources owned by the current user with offset pagination.
+
+    Args:
+        current_user: Authenticated user whose sources are listed.
+        service: Source service for database query.
+        skip: Number of records to skip (default 0).
+        limit: Maximum number of records to return (default 100).
+
+    Returns:
+        list[schemas.SourceRead]: Paginated list of the user's sources.
+    """
     return await service.list_sources_for_user(
         user_id=current_user.id,
         skip=skip,
@@ -160,9 +220,28 @@ async def process_source(
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
     service: Annotated[SourceService, Depends(deps.source_service)],
 ) -> schemas.SourceProcessResponse:
-    """Trigger processing/ingestion of a source.
-    
-    Extracts content, chunks it, generates embeddings, and stores in vector DB.
+    """Trigger content extraction, chunking, embedding, and vector-store ingestion.
+
+    Implements *smart re-ingestion*: if the source content hash matches the
+    previously stored hash, chunking and embedding are skipped and ``status``
+    in the response will be ``'skipped'``.  Otherwise chunks are stored and
+    ``status`` will be ``'ingested'``.
+
+    Args:
+        source_id: UUID of the source to process.
+        db: Database session used to initialise ``IngestionApplicationService``.
+        current_user: Authenticated user; must be the source owner.
+        service: Source service for ownership verification and status refresh.
+
+    Returns:
+        schemas.SourceProcessResponse: Updated source record plus ingestion
+        statistics (``chunks_added``, ``collection``, ``ids``,
+        ``content_hash``, ``status``).
+
+    Raises:
+        HTTPException: 404 Not Found if the source does not exist.
+        HTTPException: 403 Forbidden if the caller is not the source owner.
+        HTTPException: 400 Bad Request if the source has no URI or external ID.
     """
     from app.applications.ingestion_application import IngestionApplicationService
     

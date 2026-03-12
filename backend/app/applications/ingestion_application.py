@@ -61,7 +61,20 @@ class IngestionApplicationService:
         self.source_service = SourceService(db)
 
     def _compute_content_hash(self, texts: list[str], source_type: str) -> str:
-        """Compute hash of chunked content."""
+        """Compute a deterministic SHA-256 hash of post-chunked content.
+
+        The hash incorporates the joined chunk texts, chunking parameters
+        (``max_tokens``, ``overlap``), and ``source_type`` so that changing any
+        chunking configuration invalidates the stored hash and triggers a
+        re-ingestion on the next ``process_source`` call.
+
+        Args:
+            texts: List of chunk text strings produced by the chunker.
+            source_type: Source type identifier (e.g. ``"pdf"``, ``"youtube"``).
+
+        Returns:
+            str: Hex-encoded SHA-256 digest.
+        """
         payload = (
             "||".join(texts) +
             f"|max_tokens={self.max_tokens}|overlap={self.overlap}|source_type={source_type}"
@@ -69,7 +82,24 @@ class IngestionApplicationService:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def _compute_file_hash_from_extraction(self, extraction: dict[str, Any]) -> str:
-        """Hash raw extracted content before chunking."""
+        """Compute a SHA-256 hash of the raw extracted content before chunking.
+
+        Detects the extraction format and concatenates the appropriate text
+        fields:
+
+        * **PDF** (``extraction["page_texts"]`` present): joins all page text
+          values in order.
+        * **YouTube** (``extraction["segments"]`` present): joins all segment
+          ``"text"`` fields.
+        * **Generic** (fallback): uses ``extraction.get("text", "")``.  
+
+        Args:
+            extraction: Raw extraction dict returned by a loader function
+                (``extract_from_pdf`` or ``extract_from_youtube``).
+
+        Returns:
+            str: Hex-encoded SHA-256 digest of the combined raw text.
+        """
         if "page_texts" in extraction:
             combined = "\n".join(extraction["page_texts"].values())
         elif "segments" in extraction:
@@ -79,7 +109,29 @@ class IngestionApplicationService:
         return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
     def _prepare_chunks(self, extraction: dict[str, Any], source_id: str) -> list[dict[str, Any]]:
-        """Prepare chunks based on source type."""
+        """Route extraction output to the appropriate chunker and return chunks.
+
+        Dispatching logic:
+
+        * ``source_type == "pdf"`` and ``"page_texts"`` key present
+          -> :func:`app.rag.chunking.chunk_pdf_extraction`.
+        * ``source_type == "youtube"`` and ``"segments"`` key present
+          -> :func:`app.rag.chunking.chunk_youtube_extraction`.
+        * All other cases -> :func:`app.rag.chunking.chunk_extraction`.
+
+        Text in every case is first normalised with
+        :func:`app.utils.text.standardize_text` before chunking.
+
+        Args:
+            extraction: Raw extraction dict (with ``metadata.source_type``).
+            source_id: UUID string of the parent ``Source`` record; embedded in
+                each chunk's metadata.
+
+        Returns:
+            list[dict]: List of chunk dicts, each containing at minimum
+            ``"text"``, ``"source_id"``, ``"chunk_index"``, and
+            ``"metadata"`` keys.
+        """
         metadata = extraction.get("metadata", {})
         source_type = metadata.get("source_type")
 
@@ -123,22 +175,32 @@ class IngestionApplicationService:
         source_uuid: str | None = None,
         source_key: str | None = None,
     ) -> dict[str, Any]:
-        """Process and ingest a source with smart re-import logic.
-        
+        """Extract, chunk, embed, and store a source with smart re-ingestion.
+
+        If the source's raw content hash matches the previously stored hash the
+        job is marked ``'skipped'`` and no embeddings are recomputed.  If the
+        hash differs, stale chunks are deleted before new ones are inserted.
+
         Args:
-            source_id: UUID string of Source record.
-            source: Path or URL to source.
-            source_type: Type of source ('pdf' or 'youtube').
-            collection_name: Collection/namespace name.
-            extra_metadata: Additional metadata.
-            source_uuid: UUID for tracking.
-            source_key: Stable key for deduplication.
-            
+            source_id: UUID string of the ``Source`` database record.
+            source: File path (PDF) or URL (YouTube) for the loader.
+            source_type: ``"pdf"`` or ``"youtube"``.
+            collection_name: Vector-store collection/namespace to insert into.
+            extra_metadata: Additional key/value pairs merged into each chunk's
+                metadata (e.g. ``source_name``, ``source_uri``).
+            source_uuid: UUID forwarded to chunk metadata for traceability.
+            source_key: Stable deduplication key stored in chunk metadata.
+
         Returns:
-            Dictionary with ingestion results.
-            
+            dict: ``{"chunks_added": int, "collection": str, "ids": list[str],
+            "content_hash": str, "status": "ingested" | "skipped"}``.
+
         Raises:
-            ValueError: If source_type is unsupported.
+            ValueError: If ``source_type`` is not ``"pdf"`` or ``"youtube"``.
+            IngestionError: If extraction, chunking, or vector-store insertion
+                fails.
+            EmbeddingError: If the TEI embedding service is unreachable.
+            VectorStoreError: If pgvector insertion fails.
         """
         logger.info("Starting ingestion", source=source, source_type=source_type)
         start_time = time.perf_counter()

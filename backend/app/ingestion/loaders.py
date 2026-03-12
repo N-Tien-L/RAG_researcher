@@ -14,19 +14,47 @@ from youtube_transcript_api._errors import (
 
 
 class ExtractionError(Exception):
-    """Base exception for extraction errors."""
+    """Base exception for content extraction failures.
+
+    Subclassed by :class:`PDFExtractionError` and
+    :class:`YouTubeExtractionError` to allow callers to catch either
+    source-specific error or the common base.
+    """
 
 
 class PDFExtractionError(ExtractionError):
-    """Raised when PDF extraction fails."""
+    """Raised when a PDF file cannot be read or parsed.
+
+    Typical causes: file not found, wrong extension, corrupt PDF, or an
+    unexpected error from ``pypdf.PdfReader``.
+    """
 
 
 class YouTubeExtractionError(ExtractionError):
-    """Raised when YouTube extraction fails."""
+    """Raised when a YouTube transcript cannot be fetched.
+
+    Typical causes: invalid URL, transcripts disabled, video unavailable,
+    or no transcript in the requested language.
+    """
 
 
 def extract_from_pdf(file_path: str) -> Dict[str, object]:
-    path = Path(file_path)
+    """Extract full text and per-page text from a PDF file.
+
+    Args:
+        file_path: Absolute or relative path to the PDF file.
+
+    Returns:
+        dict: ``{"text": str, "page_texts": {page_num: str},
+        "metadata": dict}``.
+        ``metadata`` includes ``source``, ``source_type``, ``file_path``,
+        ``page_count``, ``total_chars``, and optional PDF header fields
+        (``title``, ``author``, ``creator``, ``subject``).
+
+    Raises:
+        PDFExtractionError: If the file does not exist, is not a PDF, or
+            ``pypdf`` fails to parse it.
+    """
 
     if not path.exists():
         raise PDFExtractionError(f"File not found: {file_path}")
@@ -72,7 +100,21 @@ def extract_from_pdf(file_path: str) -> Dict[str, object]:
 
 
 def _extract_youtube_video_id(url: str) -> Optional[str]:
-    if re.match(r"^[a-zA-Z0-9_-]{11}$", url):
+    """Extract the 11-character YouTube video ID from a URL or bare ID.
+
+    Accepts:
+    - Bare 11-char IDs (``"dQw4w9WgXcQ"``).
+    - Standard watch URLs (``https://www.youtube.com/watch?v=…``).
+    - Short URLs (``https://youtu.be/…``).
+    - Embed URLs (``https://www.youtube.com/embed/…``).
+    - URLs with extra query parameters.
+
+    Args:
+        url: YouTube URL or raw video ID string.
+
+    Returns:
+        str | None: The 11-character video ID, or ``None`` if not found.
+    """
         return url
 
     patterns = [
@@ -92,8 +134,26 @@ def extract_from_youtube(
     url: str,
     languages: Optional[List[str]] = None,
 ) -> Dict[str, object]:
+    """Fetch and return the auto-generated or manual transcript for a YouTube video.
 
-    languages = languages or ["en"]
+    Args:
+        url: YouTube watch URL or bare video ID.
+        languages: Ordered list of BCP-47 language codes to try
+            (default ``["en"]``).
+
+    Returns:
+        dict: ``{"text": str, "segments": list[dict],
+        "metadata": dict}``.
+        Each segment dict has ``"text"``, ``"start"``, and ``"duration"``
+        keys.  ``metadata`` includes ``source_type``, ``video_id``,
+        ``video_url``, ``language``, ``is_generated``,
+        ``duration_seconds``, ``segment_count``, and ``total_chars``.
+
+    Raises:
+        YouTubeExtractionError: If the URL is invalid, the video is
+            unavailable, transcripts are disabled, or no transcript
+            exists in any of the requested languages.
+    """
     video_id = _extract_youtube_video_id(url)
 
     if not video_id:

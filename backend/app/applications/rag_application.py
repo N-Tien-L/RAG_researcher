@@ -33,17 +33,21 @@ class RAGApplicationService:
         user_id: UUID | None = None,
         chat_history: list[db_schemas.ChatMessageRead] | None = None,
     ) -> dict[str, Any]:
-        """Execute RAG query with optional filtering.
+        """Execute a RAG query and return the answer with source metadata.
 
         Args:
-            question: User question.
-            collection_name: Collection to search in.
-            source_id: Optional filter by source ID.
-            user_id: Optional user ID for logging/tracking.
-            chat_history: Prior conversation turns from the DB.
+            question: Natural-language question to answer.
+            collection_name: Vector-store collection to search.
+            source_id: Optional source UUID to restrict retrieval to a single
+                document.
+            user_id: Caller's user ID — used for structured logging only.
+            chat_history: Prior conversation turns from the database.  Converted
+                to LangChain messages for multi-turn context.
 
         Returns:
-            Dictionary with 'answer' and 'sources'.
+            dict: ``{"answer": str, "sources": list[dict]}`` where each source
+            dict contains chunk metadata (``source_id``, ``chunk_index``,
+            ``score``, ``text`` snippet).
         """
         logger.info(
             "RAG query started",

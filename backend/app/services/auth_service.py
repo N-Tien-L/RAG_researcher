@@ -1,4 +1,9 @@
-"""Business logic for authentication and authorization."""
+"""Business logic for authentication and token management.
+
+Provides :class:`AuthService` which validates user credentials, issues JWT
+access tokens, and resolves users from tokens.  Consumed by
+``api/deps.py::current_user`` and the ``/auth/login`` route.
+"""
 
 from uuid import UUID
 

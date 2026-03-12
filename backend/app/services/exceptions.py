@@ -1,3 +1,24 @@
+"""Service-layer exception hierarchy for the RAG Researcher backend.
+
+All domain errors ultimately derive from :class:`BaseApplicationError`, which
+captures request context (``request_id``, ``user_id``) from structlog
+context vars at construction time so that errors logged at any layer carry
+full traceability information.
+
+Hierarchy::
+
+    Exception
+    ├── ServiceError              # CRUD-level errors (not-found, conflict)
+    │   ├── ResourceNotFound
+    │   └── ResourceConflict
+    ├── AuthenticationError        # Invalid credentials / expired token
+    ├── RateLimitExceeded          # In-memory sliding-window limit breached
+    └── BaseApplicationError       # Pipeline errors with error_code + context
+        ├── IngestionError           # INGESTION_{STAGE}
+        ├── EmbeddingError           # EMBEDDING_GENERATION_FAILED
+        ├── VectorStoreError         # VECTORSTORE_{OPERATION}
+        └── LLMError                 # LLM_GENERATION_FAILED
+"""
 from datetime import datetime
 from typing import Any
 
@@ -5,19 +26,34 @@ import structlog
 
 
 class ServiceError(Exception):
-    """Base exception for service layer errors."""
+    """Base exception for service-layer CRUD failures.
+
+    Raised by service methods (``UserService``, ``ChatService``, etc.) to
+    signal domain-level errors that are unrelated to the RAG/ingestion
+    pipeline.
+    """
 
 
 class ResourceNotFound(ServiceError):
-    """Raised when a requested resource does not exist."""
+    """Raised when a requested resource does not exist in the database.
+
+    Maps to HTTP 404 in route handlers.
+    """
 
 
 class ResourceConflict(ServiceError):
-    """Raised when a resource already exists or conflicts with constraints."""
+    """Raised when a unique-constraint violation or logical conflict occurs.
+
+    Maps to HTTP 409 in route handlers (e.g. duplicate email on registration).
+    """
 
 
 class AuthenticationError(Exception):
-    pass
+    """Raised by ``AuthService`` when credentials are invalid or the token
+    cannot be decoded / has expired.
+
+    Maps to HTTP 401 in route handlers via ``deps.current_user``.
+    """
 
 
 class RateLimitExceeded(Exception):
@@ -39,7 +75,12 @@ class RateLimitExceeded(Exception):
 
 
 class BaseApplicationError(Exception):
-    """Base exception with request context tracking."""
+    """Base exception for pipeline errors that require error codes and context.
+
+    Automatically pulls ``request_id`` and ``user_id`` from structlog
+    context vars (populated by ``RequestContextMiddleware``) so that every
+    raised error is traceable back to the originating HTTP request.
+    """
 
     def __init__(
         self,
@@ -76,7 +117,11 @@ def get_request_context_data(request: Any | None = None) -> dict[str, str | None
 
 
 class IngestionError(BaseApplicationError):
-    """Raised when ingestion pipeline fails."""
+    """Raised when any stage of the ingestion pipeline fails.
+
+    The ``error_code`` is set to ``INGESTION_{stage.upper()}`` so callers
+    can distinguish extraction failures from chunking failures.
+    """
 
     def __init__(
         self,
@@ -94,7 +139,10 @@ class IngestionError(BaseApplicationError):
 
 
 class EmbeddingError(BaseApplicationError):
-    """Raised when embedding generation fails."""
+    """Raised when the TEI embedding service fails or returns unexpected data.
+
+    ``error_code`` is always ``EMBEDDING_GENERATION_FAILED``.
+    """
 
     def __init__(self, message: str, provider: str = "tei", **kwargs: object) -> None:
         super().__init__(
@@ -106,7 +154,11 @@ class EmbeddingError(BaseApplicationError):
 
 
 class VectorStoreError(BaseApplicationError):
-    """Raised when vector store operations fail."""
+    """Raised when a pgvector database operation fails.
+
+    The ``error_code`` is set to ``VECTORSTORE_{operation.upper()}`` to
+    differentiate INSERT, QUERY, and DELETE failures.
+    """
 
     def __init__(self, message: str, operation: str, **kwargs: object) -> None:
         super().__init__(
@@ -118,7 +170,10 @@ class VectorStoreError(BaseApplicationError):
 
 
 class LLMError(BaseApplicationError):
-    """Raised when LLM generation fails."""
+    """Raised when the LLM fails to generate a response or times out.
+
+    ``error_code`` is always ``LLM_GENERATION_FAILED``.
+    """
 
     def __init__(self, message: str, model: str | None = None, **kwargs: object) -> None:
         super().__init__(

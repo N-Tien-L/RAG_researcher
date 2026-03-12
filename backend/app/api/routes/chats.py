@@ -19,7 +19,23 @@ async def create_chat_session(
     service: Annotated[ChatService, Depends(deps.chat_service)],
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> schemas.ChatSessionRead:
-    """Create a new chat session."""
+    """Create a new chat session for the authenticated user.
+
+    Ownership is enforced: ``chat_in.user_id`` must match ``current_user.id``.
+
+    Args:
+        chat_in: Chat session creation data (user_id, optional title).
+        service: Chat service for database persistence.
+        current_user: Authenticated user who will own the session.
+
+    Returns:
+        schemas.ChatSessionRead: The newly created chat session.
+
+    Raises:
+        HTTPException: 403 Forbidden if ``chat_in.user_id`` differs from the
+            authenticated user's ID.
+        HTTPException: 400 Bad Request if creation fails.
+    """
     # Ensure user can only create chats for themselves
     if chat_in.user_id != current_user.id:
         raise HTTPException(
@@ -42,7 +58,22 @@ async def get_chat_session(
     service: Annotated[ChatService, Depends(deps.chat_service)],
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> schemas.ChatSessionRead:
-    """Get chat session by ID."""
+    """Retrieve a chat session by its ID.
+
+    Ownership is enforced: only the session owner may access it.
+
+    Args:
+        chat_session_id: UUID of the chat session to retrieve.
+        service: Chat service for database lookup.
+        current_user: Authenticated user; must be the session owner.
+
+    Returns:
+        schemas.ChatSessionRead: The requested chat session.
+
+    Raises:
+        HTTPException: 404 Not Found if the session does not exist.
+        HTTPException: 403 Forbidden if the caller is not the session owner.
+    """
     try:
         chat = await service.get_chat_session(chat_session_id)
     except ServiceError as exc:
@@ -66,7 +97,15 @@ async def list_chat_sessions(
     service: Annotated[ChatService, Depends(deps.chat_service)],
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> list[schemas.ChatSessionRead]:
-    """List all chat sessions for current user."""
+    """List all chat sessions owned by the current user.
+
+    Args:
+        service: Chat service for database query.
+        current_user: Authenticated user whose sessions are listed.
+
+    Returns:
+        list[schemas.ChatSessionRead]: All chat sessions for the user.
+    """
     return await service.list_chat_sessions_for_user(current_user.id)
 
 
@@ -77,7 +116,24 @@ async def link_source_to_chat(
     service: Annotated[ChatService, Depends(deps.chat_service)],
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> schemas.ChatSessionSourceRead:
-    """Link a source to a chat session."""
+    """Associate a source with a chat session for scoped RAG retrieval.
+
+    Ownership is enforced: only the chat session owner may link sources.
+
+    Args:
+        chat_session_id: UUID of the target chat session.
+        source_id: UUID of the source to associate.
+        service: Chat service for database update.
+        current_user: Authenticated user; must own the chat session.
+
+    Returns:
+        schemas.ChatSessionSourceRead: The created chat–source association record.
+
+    Raises:
+        HTTPException: 404 Not Found if the chat session does not exist.
+        HTTPException: 403 Forbidden if the caller does not own the session.
+        HTTPException: 400 Bad Request if the association cannot be created.
+    """
     # Verify chat ownership
     try:
         chat = await service.get_chat_session(chat_session_id)

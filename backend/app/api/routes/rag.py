@@ -35,10 +35,31 @@ async def query_rag(
     db: Annotated[AsyncSession, Depends(deps.db_session)],
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> RAGQueryResponse:
-    """Query RAG system with a question.
-    
-    Retrieves relevant context from vector store and generates an answer using LLM.
+    """Query the RAG pipeline with a natural-language question.
+
+    Embeds ``request.question``, retrieves the top-5 relevant chunks from
+    the specified ``collection_name``, and generates a grounded answer via
+    the configured LLM.  An optional ``source_id`` narrows retrieval to a
+    single source document.
+
+    Args:
+        request: Query payload with ``question`` (1–2000 chars),
+            ``collection_name`` (default ``"documents"``), and optional
+            ``source_id`` filter.
+        db: Database session used to initialise ``RAGApplicationService``.
+        current_user: Authenticated user (required for access control).
+
+    Returns:
+        RAGQueryResponse: Generated ``answer`` string and a ``sources`` list
+        of chunk metadata dicts (``source_id``, ``chunk_index``, ``score``,
+        ``text`` snippet).
+
+    Raises:
+        HTTPException: 503 Service Unavailable if the embedding service,
+            LLM, or vector store is unreachable.
+        HTTPException: 500 Internal Server Error for unexpected failures.
     """
+    rag_service = RAGApplicationService(db, top_k=5)
     rag_service = RAGApplicationService(db, top_k=5)
     
     try:

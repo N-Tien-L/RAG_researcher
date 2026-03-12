@@ -13,7 +13,17 @@ tokenizer = AutoTokenizer.from_pretrained("gpt2")
 # -------------------------
 
 def _count_tokens(text: str) -> int:
-    """Count tokens for a given text."""
+    """Return the GPT-2 token count for *text*.
+
+    Uses the module-level GPT-2 tokenizer for consistent token budgeting
+    across all chunking functions.  Does not call any external service.
+
+    Args:
+        text: Input string to tokenise.
+
+    Returns:
+        int: Number of tokens in *text*.
+    """
     return len(tokenizer.encode(text))
 
 
@@ -26,9 +36,25 @@ def chunk_text(
     max_tokens: int = 300,
     overlap: int = 40,
 ) -> List[str]:
-    """
-    Token-aware chunking for flat text.
-    Used as a fallback for unknown sources.
+    """Token-aware chunking for flat, unstructured text.
+
+    Splits *text* on double-newline paragraph boundaries first.  Paragraphs
+    that exceed ``max_tokens`` are further split at sentence boundaries
+    (``[.!?]`` followed by whitespace).  Sentences that still exceed the
+    budget are hard-truncated at ``max_tokens``.
+
+    After flushing a chunk, the last ``overlap`` tokens are prepended to the
+    next chunk so that semantic continuity is preserved across boundaries.
+    Used as the fallback chunker for sources whose type is unknown.
+
+    Args:
+        text: Raw text to chunk.
+        max_tokens: Maximum GPT-2 tokens allowed per chunk (default 300).
+        overlap: Number of trailing tokens from the previous chunk to
+            prepend to the next (default 40).
+
+    Returns:
+        list[str]: List of text chunk strings.
     """
 
     if not text:
@@ -102,8 +128,26 @@ def chunk_pdf_extraction(
     overlap: int = 40,
     source_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """
-    Chunk PDF extraction while preserving page numbers.
+    """Chunk a PDF extraction dict while preserving page-number metadata.
+
+    Iterates over ``extraction["page_texts"]`` in page order and calls
+    ``chunk_text`` on each page's content.  Each chunk dict records the page
+    number in ``metadata.page_start`` and ``metadata.page_end``.
+
+    Args:
+        extraction: Dict returned by :func:`app.ingestion.loaders.extract_from_pdf`.
+            Must contain ``"page_texts"`` (``{page_num: str}``) and optionally
+            ``"metadata"``.
+        max_tokens: Maximum tokens per chunk (default 300).
+        overlap: Overlap tokens between adjacent chunks (default 40).
+        source_id: UUID string used to prefix chunk IDs
+            (e.g. ``"{source_id}-chunk-0"``).  Falls back to metadata
+            ``"source"`` then ``"pdf"``.
+
+    Returns:
+        list[dict]: Chunk dicts with keys ``"id"``, ``"text"``, and
+        ``"metadata"`` (includes ``chunk_index``, ``page_start``,
+        ``page_end``, plus all base metadata fields).
     """
 
     page_texts: Dict[int, str] = extraction.get("page_texts", {})
@@ -146,8 +190,26 @@ def chunk_youtube_extraction(
     # overlap: int = 40,            # YouTube chunking avoids token overlap to preserve accurate timestamps
     source_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """
-    Chunk YouTube transcripts while preserving timestamps.
+    """Chunk YouTube transcript segments while preserving start/end timestamps.
+
+    Accumulates transcript ``segments`` until adding the next segment would
+    exceed ``max_tokens``.  At that point the current window is flushed as a
+    chunk and a new window begins.  Overlap is intentionally omitted to keep
+    ``metadata.start_time`` / ``metadata.end_time`` accurate.
+
+    Args:
+        extraction: Dict returned by
+            :func:`app.ingestion.loaders.extract_from_youtube`.  Must contain
+            ``"segments"`` (list of ``{"text", "start", "duration"}`` dicts)
+            and optionally ``"metadata"``.
+        max_tokens: Maximum tokens per chunk (default 300).
+        source_id: UUID string used to prefix chunk IDs.  Falls back to
+            metadata ``"video_id"`` then ``"youtube"``.
+
+    Returns:
+        list[dict]: Chunk dicts with keys ``"id"``, ``"text"``, and
+        ``"metadata"`` (includes ``chunk_index``, ``start_time``,
+        ``end_time``, plus all base metadata fields).
     """
 
     segments = extraction.get("segments", [])
@@ -219,9 +281,27 @@ def chunk_extraction(
     overlap: int = 40,
     source_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """
-    Unified chunking entry point.
-    Automatically routes based on source type.
+    """Unified chunking entry point that dispatches by source type.
+
+    Inspects ``extraction["metadata"]["source_type"]`` and routes to the
+    most appropriate specialised chunker:
+
+    * ``"pdf"`` with ``"page_texts"`` -> :func:`chunk_pdf_extraction`
+    * ``"youtube"`` with ``"segments"`` -> :func:`chunk_youtube_extraction`
+    * All other cases -> :func:`chunk_text` (flat-text fallback)
+
+    Args:
+        extraction: Raw extraction dict from any loader.  Must contain at
+            least ``"metadata"`` and one of ``"page_texts"``, ``"segments"``,
+            or ``"text"``.
+        max_tokens: Maximum tokens per chunk (default 300).
+        overlap: Overlap tokens between adjacent chunks (default 40).
+            Ignored by the YouTube path.
+        source_id: UUID string used to prefix chunk IDs.
+
+    Returns:
+        list[dict]: Chunk dicts with ``"id"``, ``"text"``, and ``"metadata"``
+        keys.  Structure matches the output of the dispatched chunker.
     """
 
     metadata = extraction.get("metadata", {})

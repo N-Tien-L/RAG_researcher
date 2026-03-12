@@ -1,3 +1,5 @@
+"""SQLAlchemy ORM models for the RAG Researcher application."""
+
 from datetime import datetime, timezone
 import uuid
 
@@ -11,18 +13,28 @@ Base = declarative_base()
 
 
 def _utcnow() -> datetime:
+    """Return the current UTC datetime.
+
+    Returns:
+        datetime: Timezone-aware UTC timestamp.
+    """
     return datetime.now(timezone.utc)
 
-# User model
+
 class User(Base):
+    """ORM model for the ``users`` table.
+
+    Represents an application user with hashed credentials and ownership
+    relationships to chat sessions and sources.
+    """
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String(255), unique=True, nullable=False)
-    username = Column(String(100), unique=True, nullable=True)
-    password_hash = Column(String(255), nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)  # Primary key UUID
+    email = Column(String(255), unique=True, nullable=False)  # Unique email address used for login
+    username = Column(String(100), unique=True, nullable=True)  # Optional display name
+    password_hash = Column(String(255), nullable=False)  # bcrypt-hashed password
 
-    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)  # Account creation timestamp
 
     # Relationships
     chat_sessions = relationship(
@@ -36,8 +48,14 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
-# ChatSession model
+
 class ChatSession(Base):
+    """ORM model for the ``chat_sessions`` table.
+
+    A chat session belongs to one user and may reference multiple sources.
+    The ``collections`` field stores a PostgreSQL ARRAY of collection names
+    that scope vector retrieval for this session.
+    """
     __tablename__ = "chat_sessions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -45,7 +63,7 @@ class ChatSession(Base):
 
     title = Column(String(255), nullable=True)
 
-    # List of collection names used by this chat
+    # PostgreSQL ARRAY of collection names scoping retrieval for this session
     collections = Column(ARRAY(String), nullable=False, default=list)
 
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -71,8 +89,15 @@ class ChatSession(Base):
         viewonly=True,
     )
 
-# ChatMessage model
+
 class ChatMessage(Base):
+    """ORM model for the ``chat_messages`` table.
+
+    Stores individual messages within a chat session.  The ``role`` column
+    accepts three enum values: ``user``, ``assistant``, and ``system``.
+    Messages are ordered by ``created_at`` via the relationship on
+    ``ChatSession``.
+    """
     __tablename__ = "chat_messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -93,8 +118,20 @@ class ChatMessage(Base):
     # Relationships
     chat_session = relationship("ChatSession", back_populates="messages")
 
-# Source model
+
 class Source(Base):
+    """ORM model for the ``sources`` table.
+
+    Represents an ingested content source (PDF or YouTube).  Key fields:
+
+    - ``type``: enum ``pdf`` | ``youtube`` | ``text``
+    - ``status``: enum ``processing`` | ``ready`` | ``failed``
+    - ``content_hash``: SHA-256 of raw extracted content, used for smart
+      re-ingestion deduplication (skip if unchanged, re-ingest if modified)
+    - ``source_key``: stable deduplication key (file path or YouTube video ID)
+    - ``source_uri``: original URI (absolute path for PDFs, URL for YouTube)
+    - ``external_id``: platform-specific ID (e.g. YouTube video ID)
+    """
     __tablename__ = "sources"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -137,19 +174,36 @@ class Source(Base):
 
 
 class DocumentChunk(Base):
+    """ORM model for the ``document_chunks`` table.
+
+    Stores text chunks alongside their pgvector embeddings for similarity
+    search.  Key fields:
+
+    - ``embedding``: pgvector ``Vector(EMBEDDING_DIM)`` column used for
+      nearest-neighbour queries via L2 distance
+    - ``file_hash``: SHA-256 of the parent source raw content, used to
+      detect stale chunks during re-ingestion
+    - ``chunk_id``: human-readable stable ID in the form ``{source_id}-chunk-{N}``
+    """
     __tablename__ = "document_chunks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chunk_id = Column(String(255), unique=True, nullable=False)
     content = Column(Text, nullable=False)
-    embedding = Column(Vector(dim=settings.EMBEDDING_DIM), nullable=False)
+    embedding = Column(Vector(dim=settings.EMBEDDING_DIM), nullable=False)  # pgvector column
     source_id = Column(String(255), nullable=False)
-    file_hash = Column(String(128), nullable=False)
+    file_hash = Column(String(128), nullable=False)  # SHA-256 for deduplication
     collection_name = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
-# ChatSessionSource model for the Many-to-Many relationship between chatSession and Source
+
 class ChatSessionSource(Base):
+    """ORM model for the ``chat_session_sources`` join table.
+
+    Implements the many-to-many relationship between ``ChatSession`` and
+    ``Source``.  A source can belong to multiple chat sessions and a chat
+    session can reference multiple sources.
+    """
     __tablename__ = "chat_session_sources"
 
     chat_session_id = Column(

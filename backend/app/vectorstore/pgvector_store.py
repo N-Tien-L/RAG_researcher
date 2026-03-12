@@ -10,14 +10,17 @@ from app.services.exceptions import VectorStoreError, get_request_context_data
 
 
 async def get_existing_file_hash(db: AsyncSession, source_id: str) -> str | None:
-    """Get file hash for existing source.
-    
+    """Return the ``file_hash`` of the first stored chunk for a source.
+
+    Used by the ingestion pipeline to detect unchanged sources and skip
+    re-embedding when the hash matches the newly extracted content.
+
     Args:
         db: Async database session.
-        source_id: Source identifier.
-        
+        source_id: UUID string of the ``Source`` record.
+
     Returns:
-        File hash if exists, None otherwise.
+        str | None: The stored file hash, or ``None`` if no chunks exist yet.
     """
     stmt = (
         select(DocumentChunk.file_hash)
@@ -29,14 +32,20 @@ async def get_existing_file_hash(db: AsyncSession, source_id: str) -> str | None
 
 
 async def delete_chunks_by_source(db: AsyncSession, source_id: str) -> int:
-    """Delete all chunks for a given source.
-    
+    """Delete all ``DocumentChunk`` rows belonging to a source.
+
+    Used before re-ingesting a source whose content has changed (hash
+    mismatch).  Rolls back and raises ``VectorStoreError`` on failure.
+
     Args:
         db: Async database session.
-        source_id: Source identifier.
-        
+        source_id: UUID string of the ``Source`` record.
+
     Returns:
-        Number of deleted chunks.
+        int: Number of deleted rows.
+
+    Raises:
+        VectorStoreError: If the DELETE statement fails.
     """
     try:
         stmt = delete(DocumentChunk).where(DocumentChunk.source_id == source_id)
@@ -61,18 +70,28 @@ async def insert_chunks(
     file_hash: str,
     collection_name: str,
 ) -> int:
-    """Insert chunks with embeddings into pgvector.
-    
+    """Bulk-insert document chunks with pre-computed embeddings into pgvector.
+
+    Creates one ``DocumentChunk`` ORM object per chunk, bulk-adds them to
+    the session, and commits.  Rolls back and raises ``VectorStoreError``
+    on any database error.
+
     Args:
         db: Async database session.
-        chunks: List of chunk dictionaries with 'id' and 'text' keys.
-        embeddings: List of embedding vectors.
-        source_id: Source identifier.
-        file_hash: Hash of source content.
-        collection_name: Collection/namespace name.
-        
+        chunks: Chunk dicts from the chunker; each must have ``"id"`` and
+            ``"text"`` keys.
+        embeddings: Pre-computed embedding vectors in the same order as
+            *chunks*.
+        source_id: UUID string of the parent ``Source`` record.
+        file_hash: SHA-256 hash of the raw source content; stored on every
+            chunk row for deduplication checks.
+        collection_name: Logical collection/namespace for scoped retrieval.
+
     Returns:
-        Number of inserted chunks.
+        int: Number of rows inserted.
+
+    Raises:
+        VectorStoreError: If the bulk INSERT or COMMIT fails.
     """
     objects = [
         DocumentChunk(
@@ -107,17 +126,28 @@ async def query_chunks(
     top_k: int = 5,
     where: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Query chunks using vector similarity search.
-    
+    """Retrieve top-k chunks by cosine similarity to a query embedding.
+
+    Executes a pgvector ``<=>`` cosine-distance ORDER BY query against
+    ``DocumentChunk``, optionally filtered by metadata fields in *where*.
+    Converts the raw ``distance`` to a ``score`` (``1 - distance``) so
+    higher values mean higher relevance.
+
     Args:
         db: Async database session.
-        embedding: Query embedding vector.
-        collection_name: Collection/namespace to search.
-        top_k: Number of results to return.
-        where: Optional metadata filters (e.g., {'source_id': 'xyz'}).
-        
+        embedding: Query embedding vector (dimension must match stored vectors).
+        collection_name: Logical collection/namespace to restrict the search.
+        top_k: Maximum number of results to return (default 5).
+        where: Optional metadata filter dict.  Currently supported key:
+            ``"source_id"`` (str) — restricts results to one document.
+
     Returns:
-        List of chunks with metadata and similarity scores.
+        list[dict]: Each dict contains ``"id"``, ``"text"``, ``"source_id"``,
+        ``"distance"`` (float, lower is better), ``"score"`` (float,
+        higher is better), and ``"metadata"`` (source_id, file_hash).
+
+    Raises:
+        VectorStoreError: If the similarity search query fails.
     """
     stmt = (
         select(

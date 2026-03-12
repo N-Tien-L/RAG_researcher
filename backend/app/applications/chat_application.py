@@ -32,15 +32,23 @@ class ChatApplicationService:
         user_message: str,
         collection_name: str,
     ) -> dict[str, schemas.ChatMessageRead]:
-        """Send user message and get RAG-powered assistant response.
-        
+        """Persist a user message and generate a RAG-powered assistant reply.
+
+        Fetches the prior conversation history (capped at
+        ``settings.CHAT_HISTORY_MAX_TURNS * 2`` messages) before saving the
+        new user message so the current turn is excluded from context.
+        The RAG query uses the trimmed history for multi-turn coherence.
+
         Args:
-            chat_session_id: UUID of chat session.
-            user_message: User's message content.
-            collection_name: Collection to query for RAG.
-            
+            chat_session_id: UUID of the target chat session.
+            user_message: The user's text input.
+            collection_name: Vector-store collection to query for relevant chunks.
+
         Returns:
-            Dictionary with 'user_message' and 'assistant_message' schemas.
+            dict: ``{"user_message": ChatMessageRead,
+            "assistant_message": ChatMessageRead,
+            "sources": list[dict]}`` where ``sources`` contains chunk
+            metadata returned by the RAG pipeline.
         """
         logger.info(
             "Processing chat message with RAG",

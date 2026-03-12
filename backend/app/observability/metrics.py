@@ -13,35 +13,35 @@ _REGISTRY = CollectorRegistry()
 # -------------------------
 http_requests_total = Counter(
     "http_requests_total",
-    "Total HTTP requests",
+    "Total HTTP requests",  # labels: method, path, status_code
     ["method", "path", "status_code"],
     registry=_REGISTRY,
 )
 
 rag_queries_total = Counter(
     "rag_queries_total",
-    "Total RAG queries",
+    "Total RAG queries",  # labels: collection_name, status (success/failure)
     ["collection_name", "status"],
     registry=_REGISTRY,
 )
 
 ingestion_jobs_total = Counter(
     "ingestion_jobs_total",
-    "Total ingestion jobs",
+    "Total ingestion jobs",  # labels: source_type (pdf/youtube), status (success/skipped/failure)
     ["source_type", "status"],
     registry=_REGISTRY,
 )
 
 cache_operations_total = Counter(
     "cache_operations_total",
-    "Total cache operations",
+    "Total cache operations",  # labels: operation (get/set), cache_type (embedding/llm), result (hit/miss)
     ["operation", "cache_type", "result"],
     registry=_REGISTRY,
 )
 
 database_queries_total = Counter(
     "database_queries_total",
-    "Total database queries",
+    "Total database queries",  # labels: operation (SELECT/INSERT/UPDATE/DELETE), table
     ["operation", "table"],
     registry=_REGISTRY,
 )
@@ -130,6 +130,15 @@ def get_metrics_registry() -> CollectorRegistry:
 
 
 def _metrics_enabled() -> bool:
+    """Return ``True`` if Prometheus metrics collection is active.
+
+    Gates all ``record_*`` helper functions so that metrics are silently
+    skipped when ``settings.ENABLE_METRICS`` is ``False`` (e.g. in tests
+    or lightweight deployments).
+
+    Returns:
+        bool: Value of ``settings.ENABLE_METRICS``.
+    """
     return settings.ENABLE_METRICS
 
 

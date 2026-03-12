@@ -1,4 +1,13 @@
-"""Application-level ingestion orchestration."""
+"""Standalone ingestion service for use in notebooks and scripts.
+
+Provides a lighter-weight, database-free alternative to
+:class:`~app.applications.ingestion_application.IngestionApplicationService`.
+It calls the same loaders, chunkers, and embedder but writes directly to the
+vector store without updating ``Source`` records in PostgreSQL.
+
+Use :class:`~app.applications.ingestion_application.IngestionApplicationService`
+in production API routes where database-backed source tracking is required.
+"""
 
 import hashlib
 from typing import Any, Dict, Literal, Optional

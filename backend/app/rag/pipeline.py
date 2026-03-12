@@ -78,7 +78,24 @@ class RAGPipeline:
     async def _retrieve_and_format(
         self, db: AsyncSession, query: str, collection_name: str, where: dict[str, Any] | None
     ) -> dict[str, Any]:
-        """Retrieve chunks and format context."""
+        """Embed the query, retrieve top-k chunks, and format them as context.
+
+        Args:
+            db: Async database session for pgvector queries.
+            query: The user's question text.
+            collection_name: Vector-store collection to search.
+            where: Optional metadata filter dict passed to pgvector.
+
+        Returns:
+            dict: ``{"context": str, "chunks": list[dict],
+            "retrieval_time_seconds": float}`` where ``context`` is the
+            numbered chunk text ready for the prompt and each element of
+            ``chunks`` holds the raw chunk metadata.
+
+        Raises:
+            EmbeddingError: If the TEI service fails to embed the query.
+            VectorStoreError: If the pgvector similarity search fails.
+        """
         retrieval_start = time.perf_counter()
 
         with trace_context_manager(
@@ -186,12 +203,30 @@ class RAGPipeline:
     async def _generate_answer(
         self, context: str, question: str, chat_history: list[BaseMessage] | None = None
     ) -> tuple[str, float]:
-        """Generate answer with retry logic, timeout, and LLM response caching.
+        """Generate an LLM answer with caching, retry, and configurable timeout.
+
+        Checks Redis for a cached response before invoking the LLM.  On cache
+        miss, builds and invokes a ``QA_CONVERSATIONAL_PROMPT_V1 | llm | StrOutputParser``
+        LCEL chain, then stores the result in Redis with TTL
+        ``settings.CACHE_TTL_LLM``.
+
+        Retries on transient network errors (``asyncio.TimeoutError``,
+        ``ConnectionError``, ``httpx.TimeoutException``,
+        ``httpx.ConnectError``) up to ``settings.LLM_MAX_RETRIES`` attempts
+        with exponential back-off (2–10 s).
 
         Args:
-            context: Formatted RAG document chunks.
-            question: Current user question.
-            chat_history: Prior conversation turns as LangChain messages.
+            context: Numbered chunk text produced by ``_retrieve_and_format``.
+            question: The current user question.
+            chat_history: Prior conversation turns as LangChain ``BaseMessage``
+                objects.  Defaults to an empty list.
+
+        Returns:
+            tuple[str, float]: ``(answer, generation_time_seconds)`` where
+            ``generation_time_seconds`` is ``0.0`` on a cache hit.
+
+        Raises:
+            LLMError: If the LCEL chain raises or times out after all retries.
         """
         if chat_history is None:
             chat_history = []
@@ -297,17 +332,21 @@ class RAGPipeline:
         where: dict[str, Any] | None = None,
         chat_history: list[BaseMessage] | None = None,
     ) -> dict[str, Any]:
-        """Execute RAG query: retrieve + generate.
+        """Execute a full RAG query: retrieve relevant chunks then generate answer.
 
         Args:
-            db: Async database session.
-            question: User question.
-            collection_name: Collection to search in.
-            where: Optional metadata filters.
-            chat_history: Prior conversation turns as LangChain messages.
+            db: Async database session passed through to retrieval.
+            question: User question to answer.
+            collection_name: Vector-store collection to search.
+            where: Optional metadata filter dict (e.g.
+                ``{"source_id": "<uuid>"}`` to restrict to one document).
+            chat_history: Prior conversation turns as LangChain messages for
+                multi-turn coherence.  Defaults to an empty list.
 
         Returns:
-            Dictionary with 'answer' and 'sources' keys.
+            dict: ``{"answer": str, "sources": list[dict]}`` where each
+            source dict contains ``source_id``, ``chunk_index``, ``score``,
+            and a ``text`` snippet from the retrieved chunk.
         """
         query_start = time.perf_counter()
         with trace_context_manager(

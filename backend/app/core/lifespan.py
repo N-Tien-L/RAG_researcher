@@ -16,7 +16,30 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage application startup and shutdown."""
+    """Manage application startup and shutdown lifecycle.
+
+    This async context manager is passed to FastAPI as the ``lifespan``
+    parameter.  It performs the following steps in order:
+
+    **Startup:**
+    1. Configure structured logging (console or JSON)
+    2. Configure OpenTelemetry tracing (if ``ENABLE_TRACING=true``)
+    3. Initialise the async SQLAlchemy engine and session factory
+    4. Instrument SQLAlchemy with OpenTelemetry (if tracing enabled)
+    5. Connect to Redis cache (if ``REDIS_ENABLED=true``; non-fatal if unavailable)
+    6. Ensure the upload directory exists
+
+    **Shutdown (reverse order):**
+    1. Disconnect from Redis
+    2. Dispose database engine connections
+    3. Flush and shutdown tracing provider
+
+    Args:
+        app: The FastAPI application instance.
+
+    Yields:
+        None — control is yielded to FastAPI to serve requests.
+    """
     # -------------------------
     # Startup
     # -------------------------

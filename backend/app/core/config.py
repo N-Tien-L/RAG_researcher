@@ -9,7 +9,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings with validation."""
+    """Application settings loaded from environment variables and ``.env`` file.
+
+    Uses ``pydantic-settings`` which merges values in the following order
+    (later sources override earlier ones):
+    1. Field defaults defined in this class
+    2. Values in the ``.env`` file (resolved relative to the working directory)
+    3. Actual environment variables
+
+    All field names correspond directly to environment variable names
+    (case-insensitive match).
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -56,7 +66,15 @@ class Settings(BaseSettings):
 
     @property
     def DATABASE_URL(self) -> str:
-        """Construct async database URL with asyncpg driver."""
+        """Construct the async database connection URL.
+
+        Uses the asyncpg driver (``postgresql+asyncpg://``) which is required
+        for SQLAlchemy's async engine.  If ``DATABASE_URL_OVERRIDE`` is set,
+        it is returned as-is.
+
+        Returns:
+            str: Full asyncpg connection URL.
+        """
         if self.DATABASE_URL_OVERRIDE:
             return self.DATABASE_URL_OVERRIDE
         return (

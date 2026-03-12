@@ -155,7 +155,16 @@ def trace_context_manager(
 
 
 def add_span_attributes(**kwargs: Any) -> None:
-    """Add attributes to the current span."""
+    """Set arbitrary key/value attributes on the currently active span.
+
+    Silently no-ops if there is no active recording span (e.g. when tracing
+    is disabled or the call is made outside a traced context).
+
+    Args:
+        **kwargs: Attribute name/value pairs to attach to the current span.
+            Values must be serialisable by the OpenTelemetry SDK (str, int,
+            float, bool, or sequences thereof).
+    """
     span = trace.get_current_span()
     if not span.is_recording():
         return

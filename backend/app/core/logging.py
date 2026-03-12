@@ -12,13 +12,36 @@ from app.core.config import settings
 
 
 def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
-    """Add application context to log entries."""
+    """Structlog processor that injects the application name into every log entry.
+
+    Args:
+        logger: The underlying logger instance (unused).
+        method_name: Log method name such as ``info`` or ``error`` (unused).
+        event_dict: Mutable structlog event dictionary.
+
+    Returns:
+        EventDict: The event dictionary with ``app`` set to ``'rag_researcher'``.
+    """
     event_dict["app"] = "rag_researcher"
     return event_dict
 
 
 def add_trace_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
-    """Add OpenTelemetry trace context to log entries."""
+    """Structlog processor that injects the active OpenTelemetry trace context.
+
+    Reads the current span from the OpenTelemetry context.  If a recording
+    span is active, its ``trace_id`` and ``span_id`` are added to the event
+    dictionary as 32- and 16-character hex strings respectively.
+
+    Args:
+        logger: The underlying logger instance (unused).
+        method_name: Log method name (unused).
+        event_dict: Mutable structlog event dictionary.
+
+    Returns:
+        EventDict: Event dictionary optionally enriched with ``trace_id`` and
+            ``span_id`` keys.
+    """
     span = trace.get_current_span()
     if span.is_recording():
         ctx = span.get_span_context()
@@ -112,7 +135,12 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
 
 
 def bind_trace_context() -> None:
-    """Bind trace context into structlog contextvars."""
+    """Bind the active OpenTelemetry trace context into structlog contextvars.
+
+    Reads ``trace_id`` and ``span_id`` from the current span and binds them
+    so that all subsequent log calls in the same async context automatically
+    include them.  No-op when no recording span is active.
+    """
     span = trace.get_current_span()
     if not span.is_recording():
         return
@@ -131,7 +159,15 @@ def log_retrieval(
     top_score: float | None,
     retrieval_time_ms: float,
 ) -> None:
-    """Log retrieval operation metrics."""
+    """Log vector retrieval operation metrics at INFO level.
+
+    Args:
+        logger: Bound structlog logger from the calling module.
+        query: User query string (truncated to 100 chars for log size).
+        num_chunks: Number of chunks returned by the retrieval.
+        top_score: Similarity score of the best chunk, or ``None`` if empty.
+        retrieval_time_ms: Total retrieval duration in milliseconds.
+    """
     logger.info(
         "retrieval_completed",
         query=query[:100],  # Truncate for log size
@@ -148,7 +184,15 @@ def log_generation(
     tokens_used: int | None,
     generation_time_ms: float,
 ) -> None:
-    """Log generation operation metrics."""
+    """Log LLM generation operation metrics at INFO level.
+
+    Args:
+        logger: Bound structlog logger from the calling module.
+        query: User query string (truncated to 100 chars for log size).
+        response_length: Character length of the generated answer.
+        tokens_used: Token count reported by the LLM, or ``None`` if unavailable.
+        generation_time_ms: LLM generation duration in milliseconds.
+    """
     logger.info(
         "generation_completed",
         query=query[:100],

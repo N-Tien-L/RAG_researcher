@@ -2,7 +2,8 @@
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-# Version 1: Basic Q&A with context
+# QA_PROMPT_V1: single-turn Q&A grounded strictly on retrieved context.
+# Required inputs: {context}, {question}.
 QA_PROMPT_V1 = ChatPromptTemplate.from_messages([
     ("system", """You are a helpful AI assistant. Answer the user's question using ONLY the context provided below.
     
@@ -25,7 +26,10 @@ QA_PROMPT_V1.metadata = {
     "created_at": "2026-02-04",
 }
 
-# Version 2: Conversational Q&A with chat history
+# QA_CONVERSATIONAL_PROMPT_V1: multi-turn Q&A with optional chat_history.
+# Required inputs: {context}, {question}.
+# Optional inputs: {chat_history} (list of LangChain BaseMessage objects).
+# Used by RAGPipeline as the primary production prompt.
 QA_CONVERSATIONAL_PROMPT_V1 = ChatPromptTemplate.from_messages([
     ("system", """You are a helpful AI assistant engaged in a conversation.
     
@@ -48,6 +52,18 @@ QA_CONVERSATIONAL_PROMPT_V1.metadata = {
 
 # Helper function for backwards compatibility
 def qa_prompt(context: str, question: str) -> str:
-    """Legacy helper - deprecated, use QA_PROMPT_V1 directly."""
+    """Format ``QA_PROMPT_V1`` into a plain string.
+
+    .. deprecated::
+        Use ``QA_PROMPT_V1`` directly with ``.format_messages()`` or as part
+        of a LangChain LCEL chain.
+
+    Args:
+        context: Retrieved document context text.
+        question: User question.
+
+    Returns:
+        str: Newline-joined message contents from ``QA_PROMPT_V1``.
+    """
     messages = QA_PROMPT_V1.format_messages(context=context, question=question)
     return "\n".join([msg.content for msg in messages])

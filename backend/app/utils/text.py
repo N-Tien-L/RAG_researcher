@@ -5,7 +5,31 @@ import unicodedata
 
 
 def standardize_text(text: str) -> str:
-    """Clean and standardize extracted text for downstream processing."""
+    """Normalise and clean extracted text for downstream embedding and chunking.
+
+    Applies the following transformations in order:
+
+    1. **NFKC Unicode normalisation** — decomposes compatibility characters.
+    2. **Zero-width character removal** (U+200B through U+200D, U+FEFF).
+    3. **Dash normalisation** — all Unicode dash variants mapped to ASCII ``-``.
+    4. **Quotation-mark normalisation** — curly/typographic quotes to ASCII
+       ``'`` and ``"``.
+    5. **Soft-hyphen removal** (U+00AD).
+    6. **Hyphenated line-break joining** — ``-\n`` sequences collapsed.
+    7. **Consecutive space collapsing** — multiple spaces → single space
+       (tabs preserved for indentation).
+    8. **Trailing-space stripping** before newlines.
+    9. **Excessive blank-line collapsing** — 3+ newlines → 2 newlines.
+    10. **Control character removal** (except ``\n`` and ``\t``).
+    11. **Strip leading/trailing whitespace**.
+
+    Args:
+        text: Raw text string from a PDF page or YouTube segment.
+
+    Returns:
+        str: Cleaned, normalised text string, or an empty string if
+        ``text`` is falsy.
+    """
     if not text:
         return ""
 

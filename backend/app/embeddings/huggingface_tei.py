@@ -1,3 +1,16 @@
+"""HuggingFace Text-Embeddings-Inference (TEI) client with Redis caching.
+
+Provides :class:`HuggingFaceTEIEmbedder`, a LangChain-compatible embedder that
+forwards texts to a self-hosted TEI server (``/v1/embeddings``) with
+automatic per-item Redis caching and batching.
+
+Embedding cache keys:
+
+* **Document embeddings**: ``embedding:doc:{sha256(text + mode)}``
+  (TTL: ``settings.CACHE_TTL_EMBEDDINGS``, default 3600 s).
+* **Query embeddings**: ``embedding:query:{sha256(text + "query")}``
+  (same TTL).
+"""
 import asyncio
 import json
 import time
@@ -13,7 +26,17 @@ logger = get_logger(__name__)
 
 
 class HuggingFaceTEIEmbedder:
-    """Client for Hugging Face text-embeddings-inference server."""
+    """Async-capable client for HuggingFace Text-Embeddings-Inference (TEI).
+
+    Batches texts into groups of ``max_batch_size`` before calling the TEI
+    ``/v1/embeddings`` endpoint.  Each text is prefixed with the embedding
+    mode (``"passage: "`` or ``"query: "``) as required by asymmetric
+    retrieval models (e.g. E5, BGE).
+
+    When ``settings.REDIS_ENABLED`` is ``True``, results are cached in Redis
+    using SHA-256 content-addressed keys so that re-embedding unchanged
+    texts is avoided.
+    """
 
     def __init__(
         self,
@@ -22,14 +45,42 @@ class HuggingFaceTEIEmbedder:
         timeout: int = 30,
         mode: str = "passage",
     ):
-        # mode="passage" → documents / chunks you store
-        # mode="query" → user questions / search queries
+        """Initialise the TEI embedder.
+
+        Args:
+            base_url: Base URL of the TEI server
+                (e.g. ``"http://localhost:8080"``).  Trailing slashes are
+                stripped automatically.
+            max_batch_size: Maximum number of texts per HTTP request
+                (default 8).  Increase for throughput, decrease to avoid
+                OOM on the TEI server.
+            timeout: HTTP request timeout in seconds (default 30).
+            mode: Default embedding mode: ``"passage"`` for documents
+                stored in the vector store, ``"query"`` for user questions.
+        """
         self.base_url = base_url.rstrip("/")
         self.max_batch_size = max_batch_size
         self.timeout = timeout
         self.mode = mode
 
     def _embed_batch(self, batch: List[str], mode: Optional[str] = None) -> List[List[float]]:
+        """Embed a single batch of texts synchronously via the TEI HTTP API.
+
+        Prefixes each text with the active mode (``"passage: "`` or
+        ``"query: "``) before sending.  Validates that the returned
+        embedding dimension matches ``settings.EMBEDDING_DIM``.
+
+        Args:
+            batch: Texts to embed (length <= ``max_batch_size``).
+            mode: Override the instance-level mode for this batch.
+
+        Returns:
+            list[list[float]]: One embedding vector per input text.
+
+        Raises:
+            EmbeddingError: If the HTTP request fails or the returned
+                dimension does not match ``settings.EMBEDDING_DIM``.
+        """
         current_mode = (mode or self.mode).strip()
         prefixed = [f"{current_mode}: {text}" for text in batch]
 
@@ -60,6 +111,19 @@ class HuggingFaceTEIEmbedder:
         return embeddings
 
     def _embed(self, texts: List[str], mode: Optional[str] = None) -> List[List[float]]:
+        """Embed an arbitrary number of texts by splitting into batches.
+
+        Iterates over *texts* in windows of ``max_batch_size`` and calls
+        :meth:`_embed_batch` for each window.
+
+        Args:
+            texts: Texts to embed (any length).
+            mode: Embedding mode override passed through to each batch.
+
+        Returns:
+            list[list[float]]: One embedding vector per input text, in
+            the original order.
+        """
         embeddings: List[List[float]] = []
         for i in range(0, len(texts), self.max_batch_size):
             batch = texts[i : i + self.max_batch_size]
@@ -68,17 +132,21 @@ class HuggingFaceTEIEmbedder:
         return embeddings
 
     async def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed documents with per-document caching.
+        """Embed a list of documents with per-document Redis caching.
 
-        Cached embeddings are looked up individually; only uncached texts
-        are sent to the TEI server.  Results are returned in the original
-        order.
+        Checks the Redis cache for each text individually.  Only texts with
+        a cache miss are forwarded to the TEI server as a batch.  Results
+        are stored back to Redis with TTL ``settings.CACHE_TTL_EMBEDDINGS``
+        and returned in the original input order.
+
+        Falls back to a direct TEI call (no caching) when
+        ``settings.REDIS_ENABLED`` is ``False``.
 
         Args:
-            texts: List of document texts to embed.
+            texts: Document texts to embed (typically chunk content).
 
         Returns:
-            List of embedding vectors, one per input text.
+            list[list[float]]: One embedding vector per input text.
         """
         if not settings.REDIS_ENABLED:
             return await asyncio.to_thread(self._embed, texts, self.mode)
@@ -122,13 +190,19 @@ class HuggingFaceTEIEmbedder:
         return results  # type: ignore[return-value]
 
     async def embed_query(self, text: str) -> List[float]:
-        """Embed a single query with caching.
+        """Embed a single query string with Redis caching.
+
+        Always uses mode ``"query"`` regardless of the instance-level
+        ``mode`` setting, so that asymmetric retrieval models score queries
+        correctly against passage embeddings.
+
+        Cache key: ``embedding:query:{sha256(text + "query")}``.
 
         Args:
-            text: Query text to embed.
+            text: The user's search or question text.
 
         Returns:
-            Embedding vector.
+            list[float]: Embedding vector for *text*.
         """
         cache_key = f"embedding:query:{compute_cache_key(text, 'query')}"
 

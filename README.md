@@ -1,25 +1,93 @@
-# RAG_researcher
+# RAG Researcher
 
-## Structure
+> Conversational AI over PDF and YouTube sources
 
-- app/main.py - Streamlit entrypoint for ingestion demo
-- app/rag/ - Chunking and pipeline stubs
-- app/ingestion/ - PDF/YouTube extraction helpers
-- app/core/ - Config and logging utilities
-- app/utils/ - Shared helpers (text, files, time)
-- tests/ - Unit/integration tests
+![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-green) ![pgvector](https://img.shields.io/badge/pgvector-PostgreSQL-blue)
+
+RAG Researcher is a production-ready Retrieval-Augmented Generation (RAG) backend that lets users upload PDF documents or YouTube video URLs, ingest them into a pgvector store, and ask questions via a conversational chat interface. The LangChain LCEL pipeline handles multi-turn chat history, Redis-cached embeddings, and supports both Ollama and Kaggle LitServe as interchangeable LLM backends.
+
+## Architecture Overview
+
+```mermaid
+graph TD
+    Client["Client (HTTP)"]
+    FastAPI["FastAPI (main.py)"]
+    Routes["Routes (api/routes/)"]
+    AppSvc["Application Services (applications/)"]
+    RAG["RAG Pipeline (rag/)"]
+    Ingest["Ingestion Pipeline (ingestion/)"]
+    SvcLayer["Service Layer (services/)"]
+    PGVector["pgvector (PostgreSQL)"]
+    Redis["Redis Cache"]
+    TEI["HuggingFace TEI"]
+    LLM["LLM (Ollama / Kaggle)"]
+    Obs["Observability Stack"]
+
+    Client --> FastAPI
+    FastAPI --> Routes
+    Routes --> AppSvc
+    Routes --> SvcLayer
+    AppSvc --> RAG
+    AppSvc --> Ingest
+    AppSvc --> SvcLayer
+    RAG --> TEI
+    RAG --> PGVector
+    RAG --> Redis
+    RAG --> LLM
+    Ingest --> TEI
+    Ingest --> PGVector
+    SvcLayer --> PGVector
+    FastAPI --> Obs
+```
 
 ## Quickstart
 
-1. Install deps: `pip install -e .`
-2. Run the API: `uvicorn app.main:app --reload`
-3. Optionally set `SECRET_KEY` and `ACCESS_TOKEN_EXPIRE_MINUTES` in `.env` to configure JWTs.
+```bash
+# 1. Start all services
+docker-compose up -d
 
-### API authentication
+# 2. Copy and configure environment
+cp .env.example .env
+# Edit .env — set SECRET_KEY, POSTGRES_PASSWORD, TEI_URL at minimum
 
-- Register a user via `POST /api/users`.
-- Log in with `POST /api/auth/login` (email + password) to receive an access token.
-- Authorize subsequent requests with header `Authorization: Bearer <token>`; check the active user with `GET /api/auth/me`.
+# 3. Run database migrations
+docker-compose exec rag-app alembic upgrade head
+
+# 4. Register a user and get a token
+curl -X POST http://localhost:8000/api/users \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"secret"}'
+
+curl -X POST http://localhost:8000/api/auth/login \
+  -F "username=user@example.com" \
+  -F "password=secret"
+
+# 5. Query the RAG system (replace TOKEN with the access_token from step 4)
+curl -X POST http://localhost:8000/api/rag/query \
+  -H "Authorization: Bearer TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is RAG?","collection_name":"documents"}'
+```
+
+## Key Features
+
+- **RAG pipeline** — LCEL-based async pipeline with multi-turn chat history, LLM response caching, and configurable `top_k` retrieval
+- **Multi-source ingestion** — PDF (via pypdf) and YouTube (via youtube-transcript-api) with smart re-ingestion (content-hash deduplication)
+- **Chat history** — per-session conversation context persisted in PostgreSQL, trimmed to `CHAT_HISTORY_MAX_TURNS`
+- **Redis caching** — embedding and LLM response caches with separate TTLs (`CACHE_TTL_EMBEDDINGS`, `CACHE_TTL_LLM`), graceful degradation when Redis is unavailable
+- **Observability stack** — Prometheus metrics, OpenTelemetry traces (Tempo), structured JSON logs (Loki), pre-provisioned Grafana dashboards
+- **LLM provider switching** — set `LLM_PROVIDER=ollama` (default) or `LLM_PROVIDER=kaggle` to switch backends without code changes
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | System components, data flow diagrams, technology choices |
+| [docs/deployment.md](docs/deployment.md) | Docker Compose services, environment variables, LLM provider switching |
+| [docs/api-reference.md](docs/api-reference.md) | All REST endpoints with request/response schemas |
+| [docs/observability.md](docs/observability.md) | Metrics, dashboards, alert rules, trace/log correlation |
+| [docs/contributing.md](docs/contributing.md) | Local dev setup, test structure, code conventions |
+| [backend/docs/backend-architecture.md](backend/docs/backend-architecture.md) | Backend layer diagram, DI patterns, async patterns |
 
 ### Rate Limiting
 

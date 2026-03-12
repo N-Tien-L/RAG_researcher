@@ -14,49 +14,69 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class ChatRole(str, Enum):
-	user = "user"
-	assistant = "assistant"
-	system = "system"
+    """Allowed roles for chat message senders."""
+
+    user = "user"
+    assistant = "assistant"
+    system = "system"
 
 
 class SourceType(str, Enum):
-	pdf = "pdf"
-	youtube = "youtube"
-	text = "text"
+    """Allowed source content types for ingestion."""
+
+    pdf = "pdf"
+    youtube = "youtube"
+    text = "text"
 
 
 class SourceStatus(str, Enum):
-	processing = "processing"
-	ready = "ready"
-	failed = "failed"
+    """Processing status of a source."""
+
+    processing = "processing"
+    ready = "ready"
+    failed = "failed"
 
 
 # Base helpers -----------------------------------------------------------------
 
 
 class ORMModel(BaseModel):
-	model_config = ConfigDict(from_attributes=True)
+    """Base Pydantic model with ``from_attributes=True`` for ORM compatibility.
+
+    All schemas that map to SQLAlchemy models should inherit from this class
+    so that ``model_validate(orm_instance)`` works without extra configuration.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TimestampedModel(ORMModel):
-	created_at: datetime
+    """Mixin that adds a ``created_at`` timestamp field."""
+
+    created_at: datetime
 
 
 # User -------------------------------------------------------------------------
 
 
 class UserBase(ORMModel):
-	email: EmailStr
-	username: Optional[str] = None
+    """Shared user fields used by create and read schemas."""
+
+    email: EmailStr
+    username: Optional[str] = None
 
 
 class UserCreate(UserBase):
-	password: str
+    """Request schema for registering a new user."""
+
+    password: str
 
 
 class UserUpdate(ORMModel):
-	email: Optional[EmailStr] = None
-	username: Optional[str] = None
+    """Request schema for partial user profile updates."""
+
+    email: Optional[EmailStr] = None
+    username: Optional[str] = None
 
 
 class UserChangePassword(ORMModel):
@@ -65,7 +85,9 @@ class UserChangePassword(ORMModel):
 	
 
 class UserRead(UserBase, TimestampedModel):
-	id: UUID
+    """Response schema for user data returned from the API."""
+
+    id: UUID
 
 
 # Auth -------------------------------------------------------------------------
@@ -78,59 +100,79 @@ class UserRead(UserBase, TimestampedModel):
 
 
 class Token(ORMModel):
-	access_token: str
-	token_type: str = "bearer"
+    """JWT access token response returned from the login endpoint."""
+
+    access_token: str
+    token_type: str = "bearer"
 
 
 class TokenPayload(ORMModel):
-	sub: UUID | None = None
-	exp: int | None = None
+    """Decoded JWT payload fields extracted during token validation."""
+
+    sub: UUID | None = None
+    exp: int | None = None
 
 
 # Chat sessions ----------------------------------------------------------------
 
 
 class ChatSessionBase(ORMModel):
-	title: Optional[str] = None
-	collections: List[str] = Field(default_factory=list)
+    """Shared chat session fields used by create and read schemas."""
+
+    title: Optional[str] = None
+    collections: List[str] = Field(default_factory=list)
 
 
 class ChatSessionCreate(ChatSessionBase):
-	user_id: UUID
+    """Request schema for creating a new chat session."""
+
+    user_id: UUID
 
 
 class ChatSessionUpdate(ORMModel):
-	title: Optional[str] = None
-	collections: Optional[List[str]] = None
+    """Request schema for partial chat session updates."""
+
+    title: Optional[str] = None
+    collections: Optional[List[str]] = None
 
 
 class ChatSessionRead(ChatSessionBase, TimestampedModel):
-	id: UUID
-	user_id: UUID
+    """Response schema for chat session data returned from the API."""
+
+    id: UUID
+    user_id: UUID
 
 
 # Chat messages ----------------------------------------------------------------
 
 
 class ChatMessageBase(ORMModel):
-	role: ChatRole
-	content: str
+    """Shared message fields used by create and read schemas."""
+
+    role: ChatRole
+    content: str
 
 
 class ChatMessageCreate(ChatMessageBase):
-	chat_id: UUID
+    """Request schema for adding a new message to a chat session."""
+
+    chat_id: UUID
 
 
 class ChatMessageRead(ChatMessageBase, TimestampedModel):
-	id: UUID
-	chat_id: UUID
+    """Response schema for a single chat message."""
+
+    id: UUID
+    chat_id: UUID
 
 
 # Sources ----------------------------------------------------------------------
 
 
 class SourceBase(ORMModel):
-	type: SourceType
+    """Shared source fields used by create and read schemas."""
+
+    type: SourceType
 	title: str
 	collection_name: str
 	status: SourceStatus = SourceStatus.processing
@@ -143,11 +185,15 @@ class SourceBase(ORMModel):
 
 
 class SourceCreate(SourceBase):
-	user_id: UUID
+    """Request schema for creating a new source record."""
+
+    user_id: UUID
 
 
 class SourceUpdate(ORMModel):
-	title: Optional[str] = None
+    """Request schema for partial source record updates."""
+
+    title: Optional[str] = None
 	collection_name: Optional[str] = None
 	status: Optional[SourceStatus] = None
 	source_key: Optional[str] = None
@@ -159,12 +205,19 @@ class SourceUpdate(ORMModel):
 
 
 class SourceRead(SourceBase, TimestampedModel):
-	id: UUID
-	user_id: UUID
+    """Response schema for a source record returned from the API."""
+
+    id: UUID
+    user_id: UUID
 
 
 class SourceProcessResponse(ORMModel):
-	"""Response from source processing/ingestion."""
+    """Response from source processing/ingestion.
+
+    The ``status`` field is either ``'ingested'`` (new or modified source
+    was fully ingested) or ``'skipped'`` (content hash unchanged, no
+    re-ingestion performed).
+    """
 	source: SourceRead
 	chunks_added: int
 	collection: str
@@ -177,27 +230,37 @@ class SourceProcessResponse(ORMModel):
 
 
 class ChatSessionSourceBase(ORMModel):
-	chat_session_id: UUID
-	source_id: UUID
+    """Shared fields for the chat-session-to-source link."""
+
+    chat_session_id: UUID
+    source_id: UUID
 
 
 class ChatSessionSourceCreate(ChatSessionSourceBase):
-	pass
+    """Request schema for linking a source to a chat session."""
+
+    pass
 
 
 class ChatSessionSourceRead(ChatSessionSourceBase, TimestampedModel):
-	pass
+    """Response schema for a chat-session-to-source link."""
+
+    pass
 
 
 # Rich / nested views ----------------------------------------------------------
 
 
 class ChatSessionWithMessages(ChatSessionRead):
-	messages: List[ChatMessageRead] = Field(default_factory=list)
+    """Extended chat session view that includes all messages."""
+
+    messages: List[ChatMessageRead] = Field(default_factory=list)
 
 
 class ChatSessionWithSources(ChatSessionRead):
-	sources: List[SourceRead] = Field(default_factory=list)
+    """Extended chat session view that includes all linked sources."""
+
+    sources: List[SourceRead] = Field(default_factory=list)
 
 
 class ChatSessionDetail(ChatSessionRead):

@@ -39,7 +39,32 @@ async def send_message(
     db: Annotated[AsyncSession, Depends(deps.db_session)],
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> SendMessageResponse:
-    """Send a message and get RAG-powered response."""
+    """Send a user message and receive an assistant reply.
+
+    When ``request.use_rag`` is ``True`` (default), the message is routed
+    through ``ChatApplicationService.send_message_with_rag``, which retrieves
+    relevant document chunks from the vector store and generates a grounded
+    answer via the configured LLM.  When ``False``, only the user message is
+    persisted and the ``assistant_message`` field in the response is a
+    placeholder.
+
+    Ownership is enforced: the caller must own the target chat session.
+
+    Args:
+        request: Message payload including ``chat_id``, ``content``,
+            ``use_rag`` flag, and target ``collection_name``.
+        db: Database session used to initialise application services.
+        current_user: Authenticated user; must own the chat session.
+
+    Returns:
+        SendMessageResponse: Persisted ``user_message``, generated
+        ``assistant_message``, and a ``sources`` list of retrieved chunk
+        metadata (empty when ``use_rag=False``).
+
+    Raises:
+        HTTPException: 404 Not Found if the chat session does not exist.
+        HTTPException: 403 Forbidden if the caller does not own the session.
+    """
     chat_service = ChatService(db)
     
     # Verify chat ownership
@@ -88,7 +113,24 @@ async def get_chat_history(
     service: Annotated[ChatService, Depends(deps.chat_service)],
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> list[schemas.ChatMessageRead]:
-    """Get all messages for a chat session."""
+    """Return the full message history for a chat session.
+
+    Messages are returned in ascending ``created_at`` order (oldest first).
+    Ownership is enforced: only the chat session owner may read its history.
+
+    Args:
+        chat_id: UUID of the chat session whose history to retrieve.
+        service: Chat service for database query.
+        current_user: Authenticated user; must own the chat session.
+
+    Returns:
+        list[schemas.ChatMessageRead]: All messages in the session, ordered
+        chronologically.
+
+    Raises:
+        HTTPException: 404 Not Found if the chat session does not exist.
+        HTTPException: 403 Forbidden if the caller does not own the session.
+    """
     # Verify chat ownership
     try:
         chat = await service.get_chat_session(chat_id)

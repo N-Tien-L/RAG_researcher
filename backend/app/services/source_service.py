@@ -1,4 +1,10 @@
-"""Business logic for sources CRUD operations."""
+"""Business logic for source document CRUD operations.
+
+Provides :class:`SourceService` which manages ``Source`` records in
+PostgreSQL.  Source status lifecycle (``processing`` -> ``ready`` /
+``failed``) is driven by :class:`~applications.ingestion_application.IngestionApplicationService`
+calling :meth:`SourceService.update_source_status`.
+"""
 
 from __future__ import annotations
 

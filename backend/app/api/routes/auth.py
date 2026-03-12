@@ -18,7 +18,19 @@ async def login(
     credentials: Annotated[OAuth2PasswordRequestForm, Depends()],
     service: Annotated[AuthService, Depends(deps.auth_service)],
 ) -> schemas.Token:
-    """Authenticate user and return access token."""
+    """Authenticate a user and return a JWT access token.
+
+    Args:
+        credentials: OAuth2 password form data.  Note: ``OAuth2PasswordRequestForm``
+            uses the ``username`` field to accept the user's **email address**.
+        service: Auth service for credential validation.
+
+    Returns:
+        schemas.Token: JWT bearer token with ``access_token`` and ``token_type``.
+
+    Raises:
+        HTTPException: 401 Unauthorized if credentials are incorrect.
+    """
     try:
         # Note: OAuth2PasswordRequestForm uses 'username' field for email
         user = await service.login(credentials.username, credentials.password)
@@ -36,5 +48,14 @@ async def login(
 async def read_current_user(
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> schemas.UserRead:
-    """Get current authenticated user information."""
+    """Return the profile of the currently authenticated user.
+
+    Requires a valid JWT Bearer token in the ``Authorization`` header.
+
+    Args:
+        current_user: User resolved from the Bearer token by ``deps.current_user``.
+
+    Returns:
+        schemas.UserRead: The authenticated user's profile data.
+    """
     return current_user

@@ -1,4 +1,10 @@
-"""Business logic for user management."""
+"""Business logic for user account management.
+
+Provides :class:`UserService` which handles creating, reading, updating,
+and deleting ``User`` records.  Raises :exc:`~services.exceptions.ResourceConflict`
+on unique-constraint violations and :exc:`~services.exceptions.ResourceNotFound`
+when a user does not exist.
+"""
 
 from uuid import UUID
 

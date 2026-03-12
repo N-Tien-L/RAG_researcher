@@ -17,7 +17,20 @@ async def create_user(
     user_in: schemas.UserCreate,
     service: Annotated[UserService, Depends(deps.user_service)],
 ) -> schemas.UserRead:
-    """Create a new user."""
+    """Register a new user account.
+
+    This endpoint does not require authentication.
+
+    Args:
+        user_in: New user registration data (email, optional username, password).
+        service: User service for creating the account.
+
+    Returns:
+        schemas.UserRead: The newly created user's profile.
+
+    Raises:
+        HTTPException: 409 Conflict if the email or username already exists.
+    """
     return await service.create_user(user_in)
 
 
@@ -27,7 +40,19 @@ async def get_user(
     service: Annotated[UserService, Depends(deps.user_service)],
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> schemas.UserRead:
-    """Get user by ID."""
+    """Retrieve a user by ID.
+
+    Args:
+        user_id: UUID of the user to retrieve.
+        service: User service for database lookup.
+        current_user: Authenticated user (required for access).
+
+    Returns:
+        schemas.UserRead: The requested user's profile.
+
+    Raises:
+        HTTPException: 404 Not Found if the user does not exist.
+    """
     return await service.get_user(user_id)
 
 
@@ -38,7 +63,17 @@ async def list_users(
     skip: int = 0,
     limit: int = 100,
 ) -> list[schemas.UserRead]:
-    """List users with pagination."""
+    """List users with offset pagination.
+
+    Args:
+        service: User service for database query.
+        current_user: Authenticated user (required for access).
+        skip: Number of records to skip.
+        limit: Maximum number of records to return.
+
+    Returns:
+        list[schemas.UserRead]: Paginated list of user profiles.
+    """
     return await service.list_users(skip, limit)
 
 
@@ -49,7 +84,20 @@ async def update_user(
     service: Annotated[UserService, Depends(deps.user_service)],
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> schemas.UserRead:
-    """Update user information."""
+    """Partially update a user's profile fields.
+
+    Args:
+        user_id: UUID of the user to update.
+        user_update: Fields to update (partial — only provided fields are changed).
+        service: User service for database update.
+        current_user: Authenticated user (required for access).
+
+    Returns:
+        schemas.UserRead: The updated user profile.
+
+    Raises:
+        HTTPException: 404 Not Found if the user does not exist.
+    """
     return await service.update_user(user_id, user_update)
 
 
@@ -59,5 +107,17 @@ async def delete_user(
     service: Annotated[UserService, Depends(deps.user_service)],
     current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
 ) -> None:
-    """Delete a user."""
+    """Delete a user account and all associated data.
+
+    Args:
+        user_id: UUID of the user to delete.
+        service: User service for database deletion.
+        current_user: Authenticated user (required for access).
+
+    Returns:
+        None: 204 No Content on success.
+
+    Raises:
+        HTTPException: 404 Not Found if the user does not exist.
+    """
     await service.delete_user(user_id)
