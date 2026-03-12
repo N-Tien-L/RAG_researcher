@@ -30,6 +30,7 @@ def generate_unique_filename(original_name: str) -> str:
     Returns:
         str: Filename in the form ``"{uuid_hex}{ext}"``.
     """
+    suffix = Path(original_name).suffix or ".bin"
     return f"{uuid.uuid4().hex}{suffix}"
 
 

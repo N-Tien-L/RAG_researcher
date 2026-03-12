@@ -55,7 +55,7 @@ def extract_from_pdf(file_path: str) -> Dict[str, object]:
         PDFExtractionError: If the file does not exist, is not a PDF, or
             ``pypdf`` fails to parse it.
     """
-
+    path = Path(file_path)
     if not path.exists():
         raise PDFExtractionError(f"File not found: {file_path}")
     if path.suffix.lower() != ".pdf":
@@ -115,6 +115,7 @@ def _extract_youtube_video_id(url: str) -> Optional[str]:
     Returns:
         str | None: The 11-character video ID, or ``None`` if not found.
     """
+    if re.match(r"^[a-zA-Z0-9_-]{11}$", url):
         return url
 
     patterns = [
@@ -154,6 +155,7 @@ def extract_from_youtube(
             unavailable, transcripts are disabled, or no transcript
             exists in any of the requested languages.
     """
+    languages = languages or ["en"]
     video_id = _extract_youtube_video_id(url)
 
     if not video_id:
