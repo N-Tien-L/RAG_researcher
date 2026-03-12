@@ -12,3 +12,9 @@ logs.txt
 .coverage
 htmlcov/
 uploads/
+
+# Ignore everything in .github
+.github/*
+
+# But do not ignore the workflows directory
+!.github/workflows/

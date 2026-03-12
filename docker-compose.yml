@@ -1,11 +1,13 @@
 services:
   rag-app:
-    build: .
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: rag-app-1
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
+      - ./backend:/app
       - venv_data:/app/.venv
     environment:
       POSTGRES_HOST: postgres
