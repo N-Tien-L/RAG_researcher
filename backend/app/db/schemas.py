@@ -82,7 +82,7 @@ class UserUpdate(ORMModel):
 class UserChangePassword(ORMModel):
     current_password: str
     new_password: str
-	
+    
 
 class UserRead(UserBase, TimestampedModel):
     """Response schema for user data returned from the API."""
@@ -95,8 +95,8 @@ class UserRead(UserBase, TimestampedModel):
 
 # Remove unused LoginRequest
 # class LoginRequest(ORMModel):
-# 	email: EmailStr
-# 	password: str
+#   email: EmailStr
+#   password: str
 
 
 class Token(ORMModel):
@@ -173,15 +173,15 @@ class SourceBase(ORMModel):
     """Shared source fields used by create and read schemas."""
 
     type: SourceType
-	title: str
-	collection_name: str
-	status: SourceStatus = SourceStatus.processing
-	source_key: Optional[str] = None
-	source_uri: Optional[str] = None
-	external_id: Optional[str] = None
-	content_hash: Optional[str] = None
-	last_ingested_at: Optional[datetime] = None
-	updated_at: Optional[datetime] = None
+    title: str
+    collection_name: str
+    status: SourceStatus = SourceStatus.processing
+    source_key: Optional[str] = None
+    source_uri: Optional[str] = None
+    external_id: Optional[str] = None
+    content_hash: Optional[str] = None
+    last_ingested_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class SourceCreate(SourceBase):
@@ -194,14 +194,14 @@ class SourceUpdate(ORMModel):
     """Request schema for partial source record updates."""
 
     title: Optional[str] = None
-	collection_name: Optional[str] = None
-	status: Optional[SourceStatus] = None
-	source_key: Optional[str] = None
-	source_uri: Optional[str] = None
-	external_id: Optional[str] = None
-	content_hash: Optional[str] = None
-	last_ingested_at: Optional[datetime] = None
-	updated_at: Optional[datetime] = None
+    collection_name: Optional[str] = None
+    status: Optional[SourceStatus] = None
+    source_key: Optional[str] = None
+    source_uri: Optional[str] = None
+    external_id: Optional[str] = None
+    content_hash: Optional[str] = None
+    last_ingested_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class SourceRead(SourceBase, TimestampedModel):
@@ -218,12 +218,12 @@ class SourceProcessResponse(ORMModel):
     was fully ingested) or ``'skipped'`` (content hash unchanged, no
     re-ingestion performed).
     """
-	source: SourceRead
-	chunks_added: int
-	collection: str
-	ids: list[str]
-	content_hash: str
-	status: str  # 'ingested' or 'skipped'
+    source: SourceRead
+    chunks_added: int
+    collection: str
+    ids: list[str]
+    content_hash: str
+    status: str  # 'ingested' or 'skipped'
 
 
 # Chat-session-to-source links --------------------------------------------------
@@ -264,5 +264,5 @@ class ChatSessionWithSources(ChatSessionRead):
 
 
 class ChatSessionDetail(ChatSessionRead):
-	messages: List[ChatMessageRead] = Field(default_factory=list)
-	sources: List[SourceRead] = Field(default_factory=list)
+    messages: List[ChatMessageRead] = Field(default_factory=list)
+    sources: List[SourceRead] = Field(default_factory=list)
