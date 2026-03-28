@@ -4,6 +4,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.db.models import User
+from app.services.exceptions import ServiceError
 
 
 class TestCreateChatSession:
@@ -372,3 +373,125 @@ class TestListChatSources:
 
         response = await client.get(f"/api/chats/{uuid.uuid4()}/sources")
         assert response.status_code == 401
+
+
+class TestUpdateChatSession:
+    """Test cases for PATCH /api/chats/{chat_session_id} endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_update_chat_success(
+        self,
+        authenticated_client: AsyncClient,
+        test_user: User,
+        chat_factory,
+    ):
+        """Owner can rename chat session."""
+        chat = await chat_factory(user_id=test_user.id, title="Old Title")
+
+        response = await authenticated_client.patch(
+            f"/api/chats/{chat.id}",
+            json={"title": "New Title"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(chat.id)
+        assert data["title"] == "New Title"
+
+    @pytest.mark.asyncio
+    async def test_update_chat_not_found(self, authenticated_client: AsyncClient):
+        """Unknown chat id returns 404."""
+        import uuid
+
+        response = await authenticated_client.patch(
+            f"/api/chats/{uuid.uuid4()}",
+            json={"title": "Does not matter"},
+        )
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_update_chat_forbidden(
+        self,
+        authenticated_client: AsyncClient,
+        user_factory,
+        chat_factory,
+    ):
+        """Cannot update another user's chat."""
+        other_user = await user_factory(email="chat-owner-update@example.com")
+        chat = await chat_factory(user_id=other_user.id, title="Other")
+
+        response = await authenticated_client.patch(
+            f"/api/chats/{chat.id}",
+            json={"title": "Hacked"},
+        )
+
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_update_chat_invalid_title_returns_400(
+        self,
+        authenticated_client: AsyncClient,
+        test_user: User,
+        chat_factory,
+        monkeypatch,
+    ):
+        """Service-level update failure maps to 400."""
+        chat = await chat_factory(user_id=test_user.id, title="Old")
+
+        async def fail_update(*_args, **_kwargs):
+            raise ServiceError("invalid title")
+
+        monkeypatch.setattr(
+            "app.services.chat_service.ChatService.update_chat_title",
+            fail_update,
+        )
+
+        response = await authenticated_client.patch(
+            f"/api/chats/{chat.id}",
+            json={"title": "new title"},
+        )
+
+        assert response.status_code == 400
+
+
+class TestDeleteChatSession:
+    """Test cases for DELETE /api/chats/{chat_session_id} endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_delete_chat_success(
+        self,
+        authenticated_client: AsyncClient,
+        test_user: User,
+        chat_factory,
+    ):
+        """Owner can delete chat session."""
+        chat = await chat_factory(user_id=test_user.id)
+
+        response = await authenticated_client.delete(f"/api/chats/{chat.id}")
+
+        assert response.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_delete_chat_not_found(self, authenticated_client: AsyncClient):
+        """Unknown chat id returns 404."""
+        import uuid
+
+        response = await authenticated_client.delete(f"/api/chats/{uuid.uuid4()}")
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_chat_forbidden(
+        self,
+        authenticated_client: AsyncClient,
+        user_factory,
+        chat_factory,
+    ):
+        """Cannot delete another user's chat."""
+        other_user = await user_factory(email="chat-owner-delete@example.com")
+        chat = await chat_factory(user_id=other_user.id)
+
+        response = await authenticated_client.delete(f"/api/chats/{chat.id}")
+
+        assert response.status_code == 403

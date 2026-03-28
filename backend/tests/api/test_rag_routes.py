@@ -6,6 +6,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.db.models import User
+from app.services.exceptions import EmbeddingError, LLMError, VectorStoreError
 
 
 class TestQueryRAG:
@@ -233,3 +234,107 @@ class TestQueryRAG:
         
         assert "answer" in data
         assert data["sources"] == []
+
+    @pytest.mark.asyncio
+    @patch("app.applications.rag_application.RAGApplicationService.query")
+    async def test_query_rag_rejects_non_owned_source(
+        self,
+        mock_query: AsyncMock,
+        authenticated_client: AsyncClient,
+    ):
+        """Unknown/non-owned source_id returns 404 and bypasses pipeline query."""
+        response = await authenticated_client.post(
+            "/api/rag/query",
+            json={
+                "question": "Does this source exist?",
+                "source_id": "00000000-0000-0000-0000-000000000000",
+            },
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Source not found"
+        mock_query.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("app.applications.rag_application.RAGApplicationService.query")
+    async def test_query_rag_embedding_error_maps_to_503(
+        self,
+        mock_query: AsyncMock,
+        authenticated_client: AsyncClient,
+        test_user: User,
+        source_factory,
+    ):
+        """EmbeddingError is surfaced as service unavailable."""
+        await source_factory(user_id=test_user.id, status="ready")
+        mock_query.side_effect = EmbeddingError("embedding unavailable")
+
+        response = await authenticated_client.post(
+            "/api/rag/query",
+            json={"question": "What is RAG?"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "embedding unavailable"
+
+    @pytest.mark.asyncio
+    @patch("app.applications.rag_application.RAGApplicationService.query")
+    async def test_query_rag_llm_error_maps_to_503(
+        self,
+        mock_query: AsyncMock,
+        authenticated_client: AsyncClient,
+        test_user: User,
+        source_factory,
+    ):
+        """LLMError is surfaced as service unavailable."""
+        await source_factory(user_id=test_user.id, status="ready")
+        mock_query.side_effect = LLMError("llm unavailable")
+
+        response = await authenticated_client.post(
+            "/api/rag/query",
+            json={"question": "What is RAG?"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "llm unavailable"
+
+    @pytest.mark.asyncio
+    @patch("app.applications.rag_application.RAGApplicationService.query")
+    async def test_query_rag_vectorstore_error_maps_to_503(
+        self,
+        mock_query: AsyncMock,
+        authenticated_client: AsyncClient,
+        test_user: User,
+        source_factory,
+    ):
+        """VectorStoreError is surfaced as service unavailable."""
+        await source_factory(user_id=test_user.id, status="ready")
+        mock_query.side_effect = VectorStoreError("store unavailable", operation="query")
+
+        response = await authenticated_client.post(
+            "/api/rag/query",
+            json={"question": "What is RAG?"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "store unavailable"
+
+    @pytest.mark.asyncio
+    @patch("app.applications.rag_application.RAGApplicationService.query")
+    async def test_query_rag_unexpected_error_maps_to_500(
+        self,
+        mock_query: AsyncMock,
+        authenticated_client: AsyncClient,
+        test_user: User,
+        source_factory,
+    ):
+        """Unexpected errors are masked as generic 500 response."""
+        await source_factory(user_id=test_user.id, status="ready")
+        mock_query.side_effect = RuntimeError("boom")
+
+        response = await authenticated_client.post(
+            "/api/rag/query",
+            json={"question": "What is RAG?"},
+        )
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "An unexpected error occurred during RAG query"

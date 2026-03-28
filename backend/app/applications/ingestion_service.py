@@ -15,6 +15,7 @@ from typing import Any, Dict, Literal, Optional
 from app.core.config import get_env
 from app.core.config import settings
 from app.core.logging import configure_logging
+from app.core.logging import get_logger
 from app.embeddings.huggingface_tei import HuggingFaceTEIEmbedder
 from app.ingestion.loaders import extract_from_pdf, extract_from_youtube
 from app.rag.chunking import (
@@ -29,7 +30,8 @@ from app.vectorstore.pgvector_store import (
     insert_chunks,
 )
 
-logger = configure_logging(__name__)
+configure_logging()
+logger = get_logger(__name__)
 
 
 class IngestionService:
