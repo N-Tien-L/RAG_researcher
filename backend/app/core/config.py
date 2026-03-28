@@ -112,6 +112,26 @@ class Settings(BaseSettings):
     KAGGLE_LLM_MAX_TOKENS: int = int(os.getenv("KAGGLE_LLM_MAX_TOKENS", "1024"))
     KAGGLE_LLM_TEMPERATURE: float = float(os.getenv("KAGGLE_LLM_TEMPERATURE", "0.2"))
 
+    # Groq title generation settings
+    GROQ_API_KEY: str | None = os.getenv("GROQ_API_KEY", None)
+    GROQ_API_URL: str = os.getenv(
+        "GROQ_API_URL",
+        "https://api.groq.com/openai/v1",
+    )
+    GROQ_TITLE_MODEL: str = os.getenv(
+        "GROQ_TITLE_MODEL",
+        "llama-3.1-8b-instant",
+    )
+    GROQ_TITLE_TEMPERATURE: float = float(
+        os.getenv("GROQ_TITLE_TEMPERATURE", "0.2")
+    )
+    GROQ_TITLE_MAX_TOKENS: int = int(
+        os.getenv("GROQ_TITLE_MAX_TOKENS", "24")
+    )
+    GROQ_TITLE_TIMEOUT: float = float(
+        os.getenv("GROQ_TITLE_TIMEOUT", "10")
+    )
+
     LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "90"))
     LLM_MAX_RETRIES: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
     CHAT_HISTORY_MAX_TURNS: int = int(os.getenv("CHAT_HISTORY_MAX_TURNS", "10"))

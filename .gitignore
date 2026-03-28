@@ -18,3 +18,5 @@ uploads/
 
 # But do not ignore the workflows directory
 !.github/workflows/
+
+.agents/*

@@ -10,13 +10,14 @@
 
 | Service | Image | Internal Port | Description |
 |---|---|---|---|
+| `frontend` | local Dockerfile | 3000 | Next.js frontend |
 | `rag-app` | local Dockerfile | 8000 | FastAPI backend |
 | `postgres` | `pgvector/pgvector:pg16` | 5432 | PostgreSQL + pgvector extension |
 | `redis` | `redis:7-alpine` | 6379 | Cache |
 | `ollama` | `ollama/ollama` | 11434 | Local LLM backend |
 | `loki` | `grafana/loki` | 3100 | Log aggregation |
 | `prometheus` | `prom/prometheus` | 9090 | Metrics scrape |
-| `grafana` | `grafana/grafana` | 3000 | Dashboards (admin/admin) |
+| `grafana` | `grafana/grafana` | 3002 (host) / 3000 (container) | Dashboards (admin/admin) |
 
 ## Quick Start
 
@@ -34,6 +35,11 @@ docker compose up -d
 
 # Run migrations
 docker compose exec rag-app alembic upgrade head
+
+# Access app surfaces
+# Frontend: http://localhost:3000
+# Backend API: http://localhost:8000
+# Grafana: http://localhost:3002
 ```
 
 ## Environment Variables Reference
@@ -46,6 +52,7 @@ docker compose exec rag-app alembic upgrade head
 | `VERSION` | `0.1.0` | API version string |
 | `API_PREFIX` | `/api` | URL prefix for all API routes |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated allowed CORS origins |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend API base URL (set in `frontend` container) |
 
 ### Database
 

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import deps
 from app.applications.rag_application import RAGApplicationService
 from app.db import schemas
+from app.services.source_service import SourceService
 from app.services.exceptions import EmbeddingError, LLMError, VectorStoreError
 
 router = APIRouter(prefix="/rag", tags=["rag"])
@@ -18,7 +19,6 @@ class RAGQueryRequest(BaseModel):
     """RAG query request schema."""
 
     question: str = Field(..., min_length=1, max_length=2000, json_schema_extra={"example": "What is RAG?"})
-    collection_name: str = Field(default="documents", json_schema_extra={"example": "documents"})
     source_id: str | None = Field(None, json_schema_extra={"example": None})
 
 
@@ -38,14 +38,13 @@ async def query_rag(
     """Query the RAG pipeline with a natural-language question.
 
     Embeds ``request.question``, retrieves the top-5 relevant chunks from
-    the specified ``collection_name``, and generates a grounded answer via
+    an optional source scope, and generates a grounded answer via
     the configured LLM.  An optional ``source_id`` narrows retrieval to a
     single source document.
 
     Args:
         request: Query payload with ``question`` (1–2000 chars),
-            ``collection_name`` (default ``"documents"``), and optional
-            ``source_id`` filter.
+            and optional ``source_id`` filter.
         db: Database session used to initialise ``RAGApplicationService``.
         current_user: Authenticated user (required for access control).
 
@@ -60,12 +59,28 @@ async def query_rag(
         HTTPException: 500 Internal Server Error for unexpected failures.
     """
     rag_service = RAGApplicationService(db, top_k=5)
-    rag_service = RAGApplicationService(db, top_k=5)
+    source_service = SourceService(db)
+
+    user_sources = await source_service.list_sources_for_user(current_user.id)
+    ready_source_ids = {
+        str(source.id)
+        for source in user_sources
+        if source.status == schemas.SourceStatus.ready
+    }
+
+    scoped_source_ids = list(ready_source_ids)
+    if request.source_id is not None:
+        if request.source_id not in ready_source_ids:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Source not found or not ready",
+            )
+        scoped_source_ids = [request.source_id]
     
     try:
         result = await rag_service.query(
             question=request.question,
-            collection_name=request.collection_name,
+            source_ids=scoped_source_ids,
             source_id=request.source_id,
             user_id=current_user.id,
         )

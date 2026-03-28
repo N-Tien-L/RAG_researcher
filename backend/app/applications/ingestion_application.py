@@ -2,6 +2,7 @@
 
 import hashlib
 import time
+from pathlib import Path
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,6 +109,24 @@ class IngestionApplicationService:
             combined = extraction.get("text", "")
         return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
+    def _compute_file_hash_from_path(self, source_path: str) -> str | None:
+        """Compute SHA-256 from a source file path when available."""
+        try:
+            path = Path(source_path)
+            if not path.is_file():
+                return None
+
+            digest = hashlib.sha256()
+            with path.open("rb") as source_file:
+                while True:
+                    chunk = source_file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+            return digest.hexdigest()
+        except OSError:
+            return None
+
     def _prepare_chunks(self, extraction: dict[str, Any], source_id: str) -> list[dict[str, Any]]:
         """Route extraction output to the appropriate chunker and return chunks.
 
@@ -169,7 +188,6 @@ class IngestionApplicationService:
         source_id: str,
         source: str,
         source_type: Literal["pdf", "youtube"],
-        collection_name: str = "documents",
         extra_metadata: dict[str, Any] | None = None,
         *,
         source_uuid: str | None = None,
@@ -185,14 +203,13 @@ class IngestionApplicationService:
             source_id: UUID string of the ``Source`` database record.
             source: File path (PDF) or URL (YouTube) for the loader.
             source_type: ``"pdf"`` or ``"youtube"``.
-            collection_name: Vector-store collection/namespace to insert into.
             extra_metadata: Additional key/value pairs merged into each chunk's
                 metadata (e.g. ``source_name``, ``source_uri``).
             source_uuid: UUID forwarded to chunk metadata for traceability.
             source_key: Stable deduplication key stored in chunk metadata.
 
         Returns:
-            dict: ``{"chunks_added": int, "collection": str, "ids": list[str],
+            dict: ``{"chunks_added": int, "ids": list[str],
             "content_hash": str, "status": "ingested" | "skipped"}``.
 
         Raises:
@@ -216,7 +233,6 @@ class IngestionApplicationService:
                 {
                     "source_id": source_id,
                     "source_type": source_type,
-                    "collection_name": collection_name,
                 },
             ):
                 # Extract content
@@ -252,6 +268,8 @@ class IngestionApplicationService:
                 extraction["metadata"] = base_metadata
 
                 file_hash = self._compute_file_hash_from_extraction(extraction)
+                if source_type == "pdf":
+                    file_hash = self._compute_file_hash_from_path(source) or file_hash
                 add_span_event("content_hash_computed", {"source_id": source_id})
 
                 # Smart re-ingest logic
@@ -270,7 +288,6 @@ class IngestionApplicationService:
                     )
                     return {
                         "chunks_added": 0,
-                        "collection": collection_name,
                         "ids": [],
                         "content_hash": file_hash,
                         "status": "skipped",
@@ -326,7 +343,9 @@ class IngestionApplicationService:
                         **get_request_context_data(),
                     ) from exc
 
-                content_hash = self._compute_content_hash(texts, source_type)
+                # Canonical source content hash is based on raw extracted content
+                # so deduplication remains stable across chunking strategy changes.
+                content_hash = file_hash
 
                 # Insert chunks
                 try:
@@ -338,7 +357,6 @@ class IngestionApplicationService:
                             embeddings=embeddings,
                             source_id=source_id,
                             file_hash=file_hash,
-                            collection_name=collection_name,
                         )
                         store_duration = time.perf_counter() - store_start
                         record_database_query("INSERT", "document_chunks", store_duration)
@@ -352,7 +370,6 @@ class IngestionApplicationService:
                 logger.info(
                     "Ingestion completed",
                     chunks_added=inserted,
-                    collection=collection_name,
                 )
 
                 # Update source status and metadata
@@ -369,7 +386,6 @@ class IngestionApplicationService:
 
                 return {
                     "chunks_added": inserted,
-                    "collection": collection_name,
                     "ids": [c["id"] for c in chunks],
                     "content_hash": content_hash,
                     "status": "ingested",

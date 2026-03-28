@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
-from tests.e2e.conftest import E2E_ANSWER, E2E_COLLECTION
+from tests.e2e.conftest import E2E_ANSWER
 
 pytestmark = pytest.mark.e2e
 
@@ -35,7 +35,7 @@ class TestRagQueryJourney:
         Steps
         -----
         1. Seed one DocumentChunk with E2E_EMBEDDING.
-        2. POST /api/rag/query with same collection.
+        2. POST /api/rag/query for the authenticated user.
         3. Mocked embedder queries with same vector → chunk is retrieved.
         4. Mocked LLM → returns E2E_ANSWER.
         5. Response body contains correct answer and at least one source.
@@ -46,7 +46,6 @@ class TestRagQueryJourney:
             "/api/rag/query",
             json={
                 "question": "What is RAG?",
-                "collection_name": E2E_COLLECTION,
             },
         )
 
@@ -70,7 +69,6 @@ class TestRagQueryJourney:
             "/api/rag/query",
             json={
                 "question": "Tell me about this document.",
-                "collection_name": E2E_COLLECTION,
                 "source_id": str(source.id),
             },
         )
@@ -80,17 +78,16 @@ class TestRagQueryJourney:
         assert data["answer"] == E2E_ANSWER
 
     @pytest.mark.asyncio
-    async def test_query_against_empty_collection_returns_fallback(
+    async def test_query_without_sources_returns_fallback(
         self,
         authenticated_client: AsyncClient,
         setup_test_db: object,
     ) -> None:
-        """Query with no matching chunks returns the pipeline's fallback response."""
+        """Query with no ready sources returns the pipeline's fallback response."""
         response = await authenticated_client.post(
             "/api/rag/query",
             json={
                 "question": "Does anything exist here?",
-                "collection_name": "nonexistent_e2e_collection_xyz",
             },
         )
 
@@ -109,6 +106,6 @@ class TestRagQueryJourney:
         """Unauthenticated RAG query returns 401."""
         response = await client.post(
             "/api/rag/query",
-            json={"question": "Sneaky query", "collection_name": E2E_COLLECTION},
+            json={"question": "Sneaky query"},
         )
         assert response.status_code == 401

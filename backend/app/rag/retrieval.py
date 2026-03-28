@@ -10,7 +10,6 @@ from app.vectorstore.pgvector_store import query_chunks as pgvector_query_chunks
 async def retrieve_chunks(
     db: AsyncSession,
     embedding: list[float],
-    collection_name: str,
     top_k: int = 5,
     where: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
@@ -19,7 +18,6 @@ async def retrieve_chunks(
     Args:
         db: Async database session.
         embedding: Query embedding vector.
-        collection_name: Collection to search in.
         top_k: Number of results to return.
         where: Optional metadata filters.
         
@@ -29,7 +27,6 @@ async def retrieve_chunks(
     return await pgvector_query_chunks(
         db=db,
         embedding=embedding,
-        collection_name=collection_name,
         top_k=top_k,
         where=where,
     )

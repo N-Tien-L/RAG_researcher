@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ChatSessionSource, Source, User
-from tests.e2e.conftest import E2E_ANSWER, E2E_COLLECTION
+from tests.e2e.conftest import E2E_ANSWER
 
 pytestmark = pytest.mark.e2e
 
@@ -52,12 +52,15 @@ class TestChatJourney:
         Steps
         -----
         1. Create chat session for test user.
+        1.5 Link seeded source to chat.
         2. POST /api/messages/send with use_rag=True.
         3. ChatApplicationService → RAGApplicationService → RAGPipeline runs.
         4. Real pgvector retrieval picks up the seeded chunk.
         5. Mocked _generate_answer returns E2E_ANSWER.
         6. Both user message and assistant message objects are returned.
         """
+        _, seeded_source = seeded_chunks
+
         # 1. Create chat
         chat_resp = await authenticated_client.post(
             "/api/chats/",
@@ -66,6 +69,12 @@ class TestChatJourney:
         assert chat_resp.status_code == 201, chat_resp.text
         chat_id = chat_resp.json()["id"]
 
+        # 1.5 Link source used by retrieval
+        link_resp = await authenticated_client.post(
+            f"/api/chats/{chat_id}/sources/{seeded_source.id}"
+        )
+        assert link_resp.status_code == 200, link_resp.text
+
         # 2. Send message
         msg_resp = await authenticated_client.post(
             "/api/messages/send",
@@ -73,7 +82,6 @@ class TestChatJourney:
                 "chat_id": chat_id,
                 "content": "What is RAG?",
                 "use_rag": True,
-                "collection_name": E2E_COLLECTION,
             },
         )
 
@@ -126,7 +134,6 @@ class TestChatJourney:
                 "chat_id": "00000000-0000-0000-0000-000000000000",
                 "content": "Sneaky message",
                 "use_rag": False,
-                "collection_name": E2E_COLLECTION,
             },
         )
         assert resp.status_code == 401
@@ -144,7 +151,6 @@ class TestChatJourney:
                 "chat_id": "00000000-0000-0000-0000-000000000001",
                 "content": "Hello?",
                 "use_rag": False,
-                "collection_name": E2E_COLLECTION,
             },
         )
         assert resp.status_code == 404
@@ -183,7 +189,6 @@ class TestChatJourney:
             type="pdf",
             title="Linkable Source",
             status="ready",
-            collection_name=E2E_COLLECTION,
             source_uri="file://e2e/link_test.pdf",
         )
         test_db_session.add(source)
@@ -220,10 +225,13 @@ class TestChatJourney:
         Steps
         -----
         1. Create a chat session.
+        1.5 Link seeded source to chat.
         2. Send a RAG message (mocked answer via autouse fixtures).
         3. GET /messages/{chat_id}/history.
         4. Assert two messages are returned: user first, assistant second.
         """
+        _, seeded_source = seeded_chunks
+
         # 1. Create chat
         chat_resp = await authenticated_client.post(
             "/api/chats/",
@@ -232,6 +240,12 @@ class TestChatJourney:
         assert chat_resp.status_code == 201, chat_resp.text
         chat_id = chat_resp.json()["id"]
 
+        # 1.5 Link source used by retrieval
+        link_resp = await authenticated_client.post(
+            f"/api/chats/{chat_id}/sources/{seeded_source.id}"
+        )
+        assert link_resp.status_code == 200, link_resp.text
+
         # 2. Send a message
         msg_resp = await authenticated_client.post(
             "/api/messages/send",
@@ -239,7 +253,6 @@ class TestChatJourney:
                 "chat_id": chat_id,
                 "content": "What is retrieval augmented generation?",
                 "use_rag": True,
-                "collection_name": E2E_COLLECTION,
             },
         )
         assert msg_resp.status_code == 200, msg_resp.text
@@ -287,7 +300,6 @@ class TestChatJourney:
                 "chat_id": chat_id,
                 "content": "Just a plain user message.",
                 "use_rag": False,
-                "collection_name": E2E_COLLECTION,
             },
         )
         assert send_resp.status_code == 200, send_resp.text

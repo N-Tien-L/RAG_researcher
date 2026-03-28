@@ -28,7 +28,7 @@ class RAGApplicationService:
     async def query(
         self,
         question: str,
-        collection_name: str,
+        source_ids: list[str] | None = None,
         source_id: str | None = None,
         user_id: UUID | None = None,
         chat_history: list[db_schemas.ChatMessageRead] | None = None,
@@ -37,7 +37,7 @@ class RAGApplicationService:
 
         Args:
             question: Natural-language question to answer.
-            collection_name: Vector-store collection to search.
+            source_ids: Optional list of allowed source UUIDs.
             source_id: Optional source UUID to restrict retrieval to a single
                 document.
             user_id: Caller's user ID — used for structured logging only.
@@ -52,12 +52,14 @@ class RAGApplicationService:
         logger.info(
             "RAG query started",
             question=question[:100],
-            collection=collection_name,
+            source_ids_count=len(source_ids or []),
             user_id=str(user_id) if user_id else None,
         )
 
         # Build filters
         where = {}
+        if source_ids is not None:
+            where["source_ids"] = source_ids
         if source_id:
             where["source_id"] = source_id
 
@@ -68,7 +70,6 @@ class RAGApplicationService:
         result = await self.pipeline.query(
             db=self.db,
             question=question,
-            collection_name=collection_name,
             where=where if where else None,
             chat_history=lc_history,
         )

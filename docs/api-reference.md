@@ -138,14 +138,39 @@ Response `SourceProcessResponse`:
 | POST | `/api/chats/` | Yes | Create chat session |
 | GET | `/api/chats/{chat_session_id}` | Yes | Get chat session |
 | GET | `/api/chats/` | Yes | List user's chat sessions |
+| PATCH | `/api/chats/{chat_session_id}` | Yes | Update chat session title |
+| DELETE | `/api/chats/{chat_session_id}` | Yes | Delete chat session |
 | POST | `/api/chats/{chat_session_id}/sources/{source_id}` | Yes | Link source to chat |
+| GET | `/api/chats/{chat_session_id}/sources` | Yes | List sources linked to chat |
 
 All chat endpoints enforce ownership — `403 Forbidden` is returned if `user_id` does not match the authenticated user.
 
 **POST `/api/chats/`** — Request body `ChatSessionCreate`:
 ```json
-{"user_id": "uuid", "title": "My research", "collections": ["documents"]}
+{
+  "user_id": "uuid",
+  "title": "My research",
+  "first_message": "How should I evaluate RAG quality?",
+  "collections": ["documents"]
+}
 ```
+
+When `title` is omitted and `first_message` is provided, the backend uses Groq to generate a short 5 to 6 word title before the chat is saved.
+
+**PATCH `/api/chats/{chat_session_id}`** — Request body `ChatSessionUpdate`:
+```json
+{
+  "title": "Updated chat title"
+}
+```
+
+Response: Updated `ChatSessionRead` object.
+
+**DELETE `/api/chats/{chat_session_id}`** — Deletes chat session and related messages.
+
+Response: `204 No Content`.
+
+**GET `/api/chats/{chat_session_id}/sources`** — Returns all linked sources for the chat.
 
 ---
 
@@ -216,11 +241,32 @@ Errors: `503 Service Unavailable` if TEI, vector store, or LLM is unavailable.
 |---|---|---|---|
 | GET | `/health` | No | Health check |
 | GET | `/metrics` | No | Prometheus metrics |
-| GET | `/cache/stats` | Yes | Cache statistics |
-| POST | `/cache/clear` | Yes | Clear cache by type |
+| GET | `/api/cache/stats` | Yes | Cache statistics |
+| POST | `/api/cache/clear` | Yes | Clear cache by type |
 
-**GET `/health`** — Returns `{"status": "ok"}`.
+**GET `/health`** — Returns health flags:
 
-**GET `/metrics`** — Returns Prometheus text format.
+```json
+{
+  "status": "ok",
+  "metrics_enabled": true,
+  "tracing_enabled": false
+}
+```
 
-**POST `/cache/clear`** — Query param `cache_type`: `embeddings`, `llm`, or `all`.
+**GET `/metrics`** — Returns Prometheus text format when `ENABLE_METRICS=true`.
+
+If disabled, returns `404` with:
+```json
+{"detail": "Metrics collection is disabled"}
+```
+
+**POST `/api/cache/clear`** — Query param `cache_type`: `embeddings`, `llm`, or `all`.
+
+Example:
+```bash
+curl -X POST "http://localhost:8000/api/cache/clear?cache_type=all" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+**GET `/api/cache/stats`** — Returns cache hit/miss and key statistics.

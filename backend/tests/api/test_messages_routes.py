@@ -47,6 +47,7 @@ class TestSendMessage:
                     "score": 0.92,
                 }
             ],
+            "chat_title": "What is RAG",
         }
         
         response = await authenticated_client.post(
@@ -55,7 +56,6 @@ class TestSendMessage:
                 "chat_id": str(chat.id),
                 "content": "What is RAG?",
                 "use_rag": True,
-                "collection_name": "documents",
             },
         )
         
@@ -68,6 +68,7 @@ class TestSendMessage:
         assert data["user_message"]["content"] == "What is RAG?"
         assert data["assistant_message"]["role"] == "assistant"
         assert len(data["sources"]) == 1
+        assert "chat_title" in data
     
     @pytest.mark.asyncio
     async def test_send_message_without_rag(

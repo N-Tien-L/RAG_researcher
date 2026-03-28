@@ -20,8 +20,8 @@ http_requests_total = Counter(
 
 rag_queries_total = Counter(
     "rag_queries_total",
-    "Total RAG queries",  # labels: collection_name, status (success/failure)
-    ["collection_name", "status"],
+    "Total RAG queries",  # labels: scope, status (success/failure)
+    ["scope", "status"],
     registry=_REGISTRY,
 )
 
@@ -59,14 +59,14 @@ http_request_duration_seconds = Histogram(
 rag_query_duration_seconds = Histogram(
     "rag_query_duration_seconds",
     "End-to-end RAG query duration in seconds",
-    ["collection_name"],
+    ["scope"],
     registry=_REGISTRY,
 )
 
 rag_retrieval_duration_seconds = Histogram(
     "rag_retrieval_duration_seconds",
     "RAG retrieval duration in seconds",
-    ["collection_name"],
+    ["scope"],
     registry=_REGISTRY,
 )
 
@@ -169,7 +169,7 @@ def record_http_request(
 
 
 def record_rag_query(
-    collection: str,
+    scope: str,
     duration_seconds: float,
     retrieval_seconds: float,
     generation_seconds: float,
@@ -178,7 +178,7 @@ def record_rag_query(
     """Record RAG query metrics.
 
     Args:
-        collection: Collection name.
+        scope: Retrieval scope label.
         duration_seconds: End-to-end duration in seconds.
         retrieval_seconds: Retrieval duration in seconds.
         generation_seconds: Generation duration in seconds.
@@ -186,11 +186,11 @@ def record_rag_query(
     """
     if not _metrics_enabled():
         return
-    rag_queries_total.labels(collection_name=collection, status=status).inc()
-    rag_query_duration_seconds.labels(collection_name=collection).observe(
+    rag_queries_total.labels(scope=scope, status=status).inc()
+    rag_query_duration_seconds.labels(scope=scope).observe(
         duration_seconds
     )
-    rag_retrieval_duration_seconds.labels(collection_name=collection).observe(
+    rag_retrieval_duration_seconds.labels(scope=scope).observe(
         retrieval_seconds
     )
     rag_generation_duration_seconds.labels(model=settings.OLLAMA_MODEL).observe(

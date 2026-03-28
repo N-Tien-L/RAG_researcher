@@ -1,5 +1,7 @@
 """Test configuration and fixtures."""
 
+pytest_plugins = ("pytest_asyncio",)
+
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, Mock
@@ -36,9 +38,6 @@ from app.utils.password import hash_password
 
 # Initialize Faker
 fake = Faker()
-
-# Set pytest-asyncio mode
-pytest_plugins = ("pytest_asyncio",)
 
 
 @pytest.fixture(scope="session")
@@ -330,7 +329,6 @@ def source_factory(test_db_session: AsyncSession):
         title: str | None = None,
         status: str = "processing",
         source_uri: str | None = "default",
-        collection_name: str | None = None,
     ) -> Source:
         # Use "default" sentinel to distinguish between None and not-provided
         if source_uri == "default":
@@ -342,7 +340,6 @@ def source_factory(test_db_session: AsyncSession):
             title=title or fake.sentence(nb_words=4),
             status=status,
             source_uri=source_uri,
-            collection_name=collection_name or f"test_collection_{fake.uuid4()}",
         )
         test_db_session.add(source)
         await test_db_session.commit()

@@ -9,6 +9,7 @@ from app.api import deps
 from app.db import schemas
 from app.services.chat_service import ChatService
 from app.services.exceptions import ServiceError
+from app.services.exceptions import ResourceNotFound
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -24,7 +25,8 @@ async def create_chat_session(
     Ownership is enforced: ``chat_in.user_id`` must match ``current_user.id``.
 
     Args:
-        chat_in: Chat session creation data (user_id, optional title).
+        chat_in: Chat session creation data, including optional title and
+            optional first user message used for title generation.
         service: Chat service for database persistence.
         current_user: Authenticated user who will own the session.
 
@@ -156,3 +158,95 @@ async def link_source_to_chat(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+@router.get("/{chat_session_id}/sources", response_model=list[schemas.SourceRead])
+async def list_chat_sources(
+    chat_session_id: UUID,
+    service: Annotated[ChatService, Depends(deps.chat_service)],
+    current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
+) -> list[schemas.SourceRead]:
+    """List sources linked to a chat session.
+
+    Ownership is enforced: only the chat session owner may read linked sources.
+
+    Args:
+        chat_session_id: UUID of the target chat session.
+        service: Chat service for database reads.
+        current_user: Authenticated user.
+
+    Returns:
+        All linked source records for the session.
+
+    Raises:
+        HTTPException: 404 Not Found if chat session does not exist.
+        HTTPException: 403 Forbidden if caller does not own the chat session.
+    """
+    try:
+        chat = await service.get_chat_session(chat_session_id)
+    except ServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat session not found",
+        ) from exc
+
+    if chat.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this chat",
+        )
+
+    return await service.list_sources_for_chat(chat_session_id)
+
+
+@router.patch("/{chat_session_id}", response_model=schemas.ChatSessionRead)
+async def update_chat_session(
+    chat_session_id: UUID,
+    chat_update: schemas.ChatSessionUpdate,
+    service: Annotated[ChatService, Depends(deps.chat_service)],
+    current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
+) -> schemas.ChatSessionRead:
+    """Partially update a chat session (rename, collections)."""
+    try:
+        chat = await service.get_chat_session(chat_session_id)
+    except ServiceError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
+
+    if chat.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to modify this chat")
+
+    # Only title update is currently supported by handlers; collections optional
+    if chat_update.title is not None:
+        try:
+            await service.update_chat_title(chat_session_id, chat_update.title)
+        except ServiceError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    # Return fresh representation
+    try:
+        return await service.get_chat_session(chat_session_id)
+    except ServiceError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
+
+
+@router.delete("/{chat_session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chat_session(
+    chat_session_id: UUID,
+    service: Annotated[ChatService, Depends(deps.chat_service)],
+    current_user: Annotated[schemas.UserRead, Depends(deps.current_user)],
+) -> None:
+    """Delete a chat session and its messages."""
+    try:
+        chat = await service.get_chat_session(chat_session_id)
+    except ServiceError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
+
+    if chat.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this chat")
+
+    try:
+        await service.delete_chat_session(chat_session_id)
+    except ResourceNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
+
+    return None

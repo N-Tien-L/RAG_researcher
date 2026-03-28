@@ -19,8 +19,17 @@ class TestCreateChatSession:
         self,
         test_db_session: AsyncSession,
         test_user,
+        monkeypatch,
     ):
         """Creates chat in database."""
+        async def fail_if_called(_: str) -> str:
+            raise AssertionError("title generation should not run")
+
+        monkeypatch.setattr(
+            "app.services.chat_service.generate_chat_title",
+            fail_if_called,
+        )
+
         chat_data = ChatSessionCreate(
             user_id=test_user.id,
             title="My Chat Session",
@@ -32,6 +41,57 @@ class TestCreateChatSession:
         assert result.user_id == test_user.id
         assert result.title == "My Chat Session"
         assert result.created_at is not None
+
+    @pytest.mark.asyncio
+    async def test_create_chat_session_generates_title_from_first_message(
+        self,
+        test_db_session: AsyncSession,
+        test_user,
+        monkeypatch,
+    ):
+        """Generates a title from the first user message."""
+        async def fake_generate_title(message: str) -> str:
+            assert message == "How do I evaluate retrieval quality in RAG systems?"
+            return "Evaluate retrieval quality in RAG"
+
+        monkeypatch.setattr(
+            "app.services.chat_service.generate_chat_title",
+            fake_generate_title,
+        )
+
+        chat_data = ChatSessionCreate(
+            user_id=test_user.id,
+            first_message="How do I evaluate retrieval quality in RAG systems?",
+        )
+
+        result = await ChatService(test_db_session).create_chat_session(chat_data)
+
+        assert result.title == "Evaluate retrieval quality in RAG"
+
+    @pytest.mark.asyncio
+    async def test_create_chat_session_uses_fallback_when_groq_fails(
+        self,
+        test_db_session: AsyncSession,
+        test_user,
+        monkeypatch,
+    ):
+        """Falls back to a truncated message when title generation fails."""
+        async def fail_generate_title(_: str) -> str:
+            raise RuntimeError("groq unavailable")
+
+        monkeypatch.setattr(
+            "app.services.chat_service.generate_chat_title",
+            fail_generate_title,
+        )
+
+        chat_data = ChatSessionCreate(
+            user_id=test_user.id,
+            first_message="Need a practical plan for evaluating RAG answers quickly",
+        )
+
+        result = await ChatService(test_db_session).create_chat_session(chat_data)
+
+        assert result.title == "Need a practical plan for evaluating"
     
     @pytest.mark.asyncio
     async def test_create_chat_session_user_not_found(
@@ -323,3 +383,64 @@ class TestLinkSourceToChat:
             )
         
         assert "link already exists" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_link_source_duplicate_ignore_existing_returns_link(
+        self,
+        test_db_session: AsyncSession,
+        test_user,
+        chat_factory,
+        source_factory,
+    ):
+        """Returns existing link when ignore_existing is enabled."""
+        service = ChatService(test_db_session)
+        chat = await chat_factory(user_id=test_user.id)
+        source = await source_factory(user_id=test_user.id)
+
+        first = await service.link_source_to_chat(chat.id, source.id)
+        second = await service.link_source_to_chat(
+            chat.id,
+            source.id,
+            ignore_existing=True,
+        )
+
+        assert second.chat_session_id == first.chat_session_id
+        assert second.source_id == first.source_id
+        assert second.created_at == first.created_at
+
+
+class TestListSourcesForChat:
+    """Test cases for list_sources_for_chat method."""
+
+    @pytest.mark.asyncio
+    async def test_list_sources_for_chat_success(
+        self,
+        test_db_session: AsyncSession,
+        test_user,
+        chat_factory,
+        source_factory,
+    ):
+        """Returns linked sources for the target chat session."""
+        service = ChatService(test_db_session)
+        chat = await chat_factory(user_id=test_user.id)
+        source_one = await source_factory(user_id=test_user.id, title="Source One")
+        source_two = await source_factory(user_id=test_user.id, title="Source Two")
+
+        await service.link_source_to_chat(chat.id, source_one.id)
+        await service.link_source_to_chat(chat.id, source_two.id)
+
+        linked = await service.list_sources_for_chat(chat.id)
+
+        assert len(linked) == 2
+        assert {item.id for item in linked} == {source_one.id, source_two.id}
+
+    @pytest.mark.asyncio
+    async def test_list_sources_for_chat_not_found(
+        self,
+        test_db_session: AsyncSession,
+    ):
+        """Raises ResourceNotFound for unknown chat session."""
+        service = ChatService(test_db_session)
+
+        with pytest.raises(ResourceNotFound):
+            await service.list_sources_for_chat(uuid4())

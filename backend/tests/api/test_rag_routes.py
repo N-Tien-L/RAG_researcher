@@ -18,8 +18,11 @@ class TestQueryRAG:
         mock_query: AsyncMock,
         authenticated_client: AsyncClient,
         test_user: User,
+        source_factory,
     ):
         """Valid query returns answer and sources."""
+        await source_factory(user_id=test_user.id, status="ready")
+
         mock_query.return_value = {
             "answer": "This is the answer to your question.",
             "sources": [
@@ -96,8 +99,12 @@ class TestQueryRAG:
         self,
         mock_query: AsyncMock,
         authenticated_client: AsyncClient,
+        test_user: User,
+        source_factory,
     ):
-        """Query specific collection works."""
+        """Basic query without filters works."""
+        await source_factory(user_id=test_user.id, status="ready")
+
         mock_query.return_value = {
             "answer": "Answer from collection.",
             "sources": [],
@@ -107,7 +114,6 @@ class TestQueryRAG:
             "/api/rag/query",
             json={
                 "question": "Tell me about collections",
-                "collection_name": "my_collection",
             },
         )
         
@@ -157,8 +163,12 @@ class TestQueryRAG:
         self,
         mock_query: AsyncMock,
         authenticated_client: AsyncClient,
+        test_user: User,
+        source_factory,
     ):
         """Mock LLM failure returns 503."""
+        await source_factory(user_id=test_user.id, status="ready")
+
         mock_query.side_effect = Exception("LLM service unavailable")
         
         response = await authenticated_client.post(
@@ -197,8 +207,12 @@ class TestQueryRAG:
         self,
         mock_query: AsyncMock,
         authenticated_client: AsyncClient,
+        test_user: User,
+        source_factory,
     ):
         """No matching chunks returns answer with empty sources."""
+        await source_factory(user_id=test_user.id, status="ready")
+
         mock_query.return_value = {
             "answer": "I couldn't find relevant information to answer your question.",
             "sources": [],

@@ -29,7 +29,6 @@ class TestGetExistingFileHash:
             embeddings=embeddings,
             source_id="test-source-123",
             file_hash="abc123hash",
-            collection_name="test_collection",
         )
         
         # Query for file hash
@@ -65,7 +64,6 @@ class TestDeleteChunksBySource:
             embeddings=embeddings,
             source_id="source-to-delete",
             file_hash="hash123",
-            collection_name="test_collection",
         )
         
         # Delete chunks
@@ -98,7 +96,6 @@ class TestDeleteChunksBySource:
             embeddings=embeddings,
             source_id="source-a",
             file_hash="hash-a",
-            collection_name="test_collection",
         )
         
         await insert_chunks(
@@ -107,7 +104,6 @@ class TestDeleteChunksBySource:
             embeddings=embeddings,
             source_id="source-b",
             file_hash="hash-b",
-            collection_name="test_collection",
         )
         
         # Delete only source-a
@@ -154,7 +150,6 @@ class TestInsertChunks:
             embeddings=embeddings,
             source_id="test-source",
             file_hash="test-hash",
-            collection_name="test_collection",
         )
         
         assert inserted_count == 2
@@ -171,7 +166,6 @@ class TestInsertChunks:
             embeddings=embeddings,
             source_id="single-source",
             file_hash="single-hash",
-            collection_name="single_collection",
         )
         
         assert inserted_count == 1
@@ -189,7 +183,6 @@ class TestInsertChunks:
             embeddings=[],
             source_id="empty-source",
             file_hash="empty-hash",
-            collection_name="empty_collection",
         )
         
         assert inserted_count == 0
@@ -207,7 +200,6 @@ class TestInsertChunks:
             embeddings=embeddings,
             source_id="large-batch",
             file_hash="large-hash",
-            collection_name="large_collection",
         )
         
         assert inserted_count == num_chunks
@@ -233,7 +225,6 @@ class TestInsertChunksErrorHandling:
                         embeddings=embeddings,
                         source_id="error-source",
                         file_hash="error-hash",
-                        collection_name="error_collection",
                     )
                 
                 assert "Failed to insert chunks" in str(exc_info.value)
@@ -266,7 +257,6 @@ class TestQueryChunks:
             embeddings=embeddings,
             source_id="query-test",
             file_hash="query-hash",
-            collection_name="ml_docs",
         )
         
         # Query with similar embedding
@@ -274,7 +264,6 @@ class TestQueryChunks:
         results = await query_chunks(
             test_db_session,
             embedding=query_embedding,
-            collection_name="ml_docs",
             top_k=2,
         )
         
@@ -303,7 +292,6 @@ class TestQueryChunks:
             embeddings=embeddings,
             source_id="topk-test",
             file_hash="topk-hash",
-            collection_name="topk_collection",
         )
         
         # Query with top_k=3
@@ -311,7 +299,6 @@ class TestQueryChunks:
         results = await query_chunks(
             test_db_session,
             embedding=query_embedding,
-            collection_name="topk_collection",
             top_k=3,
         )
         
@@ -331,7 +318,6 @@ class TestQueryChunks:
             embeddings=embedding,
             source_id="source-a",
             file_hash="hash-a",
-            collection_name="shared_collection",
         )
         
         await insert_chunks(
@@ -340,7 +326,6 @@ class TestQueryChunks:
             embeddings=embedding,
             source_id="source-b",
             file_hash="hash-b",
-            collection_name="shared_collection",
         )
         
         # Query filtered by source-a
@@ -348,7 +333,6 @@ class TestQueryChunks:
         results = await query_chunks(
             test_db_session,
             embedding=query_embedding,
-            collection_name="shared_collection",
             top_k=10,
             where={"source_id": "source-a"},
         )
@@ -357,24 +341,22 @@ class TestQueryChunks:
         assert results[0]["source_id"] == "source-a"
     
     @pytest.mark.asyncio
-    async def test_query_chunks_empty_collection(self, test_db_session: AsyncSession):
-        """Query on empty collection returns empty list."""
+    async def test_query_chunks_empty_store(self, test_db_session: AsyncSession):
+        """Query on empty store returns empty list."""
         query_embedding = [0.5] * 384
         results = await query_chunks(
             test_db_session,
             embedding=query_embedding,
-            collection_name="nonexistent_collection",
             top_k=5,
         )
         
         assert results == []
     
     @pytest.mark.asyncio
-    async def test_query_chunks_filters_by_collection(self, test_db_session: AsyncSession):
-        """Query only returns results from specified collection."""
-        # Insert chunks in two different collections with unique chunk IDs
-        chunks_1 = [{"id": "chunk-col-1", "text": "Content from collection 1"}]
-        chunks_2 = [{"id": "chunk-col-2", "text": "Content from collection 2"}]
+    async def test_query_chunks_filters_by_source_ids(self, test_db_session: AsyncSession):
+        """Query only returns results from specified source IDs."""
+        chunks_1 = [{"id": "chunk-src-1", "text": "Content from source 1"}]
+        chunks_2 = [{"id": "chunk-src-2", "text": "Content from source 2"}]
         embedding = [[0.5] * 384]
         
         await insert_chunks(
@@ -383,7 +365,6 @@ class TestQueryChunks:
             embeddings=embedding,
             source_id="test-source-1",
             file_hash="test-hash-1",
-            collection_name="collection_1",
         )
         
         await insert_chunks(
@@ -392,29 +373,30 @@ class TestQueryChunks:
             embeddings=embedding,
             source_id="test-source-2",
             file_hash="test-hash-2",
-            collection_name="collection_2",
         )
         
-        # Query collection_1
+        # Query only source-1
         query_embedding = [0.5] * 384
         results_1 = await query_chunks(
             test_db_session,
             embedding=query_embedding,
-            collection_name="collection_1",
             top_k=10,
+            where={"source_ids": ["test-source-1"]},
         )
         
-        # Query collection_2
+        # Query only source-2
         results_2 = await query_chunks(
             test_db_session,
             embedding=query_embedding,
-            collection_name="collection_2",
             top_k=10,
+            where={"source_ids": ["test-source-2"]},
         )
         
-        # Both should have results, but from different collections
+        # Both should have results, but from different sources
         assert len(results_1) == 1
         assert len(results_2) == 1
+        assert results_1[0]["source_id"] == "test-source-1"
+        assert results_2[0]["source_id"] == "test-source-2"
     
     @pytest.mark.asyncio
     async def test_query_chunks_score_calculation(self, test_db_session: AsyncSession):
@@ -428,14 +410,12 @@ class TestQueryChunks:
             embeddings=embeddings,
             source_id="score-test",
             file_hash="score-hash",
-            collection_name="score_collection",
         )
         
         query_embedding = [0.5] * 384
         results = await query_chunks(
             test_db_session,
             embedding=query_embedding,
-            collection_name="score_collection",
             top_k=1,
         )
         
@@ -465,7 +445,6 @@ class TestQueryChunksErrorHandling:
                 await query_chunks(
                     test_db_session,
                     embedding=query_embedding,
-                    collection_name="test_collection",
                     top_k=5,
                 )
             

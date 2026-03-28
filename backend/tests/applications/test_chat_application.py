@@ -44,13 +44,13 @@ class TestChatApplicationService:
 
         # Initialize service and mock RAG
         service = ChatApplicationService(test_db_session)
+        service.chat_service.list_ready_source_ids_for_chat = AsyncMock(return_value=["test-source-1"])
         service.rag_service.query = AsyncMock(return_value=mock_rag_result)
 
         # Execute
         result = await service.send_message_with_rag(
             chat_session_id=chat.id,
             user_message="What is the capital of Spain?",
-            collection_name="test_collection",
         )
 
         # Assert structure
@@ -77,7 +77,7 @@ class TestChatApplicationService:
         # Verify RAG service was called with correct params
         service.rag_service.query.assert_called_once_with(
             question="What is the capital of Spain?",
-            collection_name="test_collection",
+            source_ids=["test-source-1"],
             chat_history=[],
         )
 
@@ -103,13 +103,13 @@ class TestChatApplicationService:
         }
 
         service = ChatApplicationService(test_db_session)
+        service.chat_service.list_ready_source_ids_for_chat = AsyncMock(return_value=["test-source-1"])
         service.rag_service.query = AsyncMock(return_value=mock_rag_result)
 
         # Execute
         result = await service.send_message_with_rag(
             chat_session_id=chat.id,
             user_message="What is unknown topic?",
-            collection_name="test_collection",
         )
 
         # Assert messages created even with no sources
@@ -138,13 +138,13 @@ class TestChatApplicationService:
         }
 
         service = ChatApplicationService(test_db_session)
+        service.chat_service.list_ready_source_ids_for_chat = AsyncMock(return_value=["test-source-1"])
         service.rag_service.query = AsyncMock(return_value=mock_rag_result)
 
         # Send first message
         result1 = await service.send_message_with_rag(
             chat_session_id=chat.id,
             user_message="First question",
-            collection_name="test_collection",
         )
 
         # Send second message
@@ -152,7 +152,6 @@ class TestChatApplicationService:
         result2 = await service.send_message_with_rag(
             chat_session_id=chat.id,
             user_message="Second question",
-            collection_name="test_collection",
         )
 
         # Assert first set of messages created before second
@@ -183,13 +182,13 @@ class TestChatApplicationService:
         }
 
         service = ChatApplicationService(test_db_session)
+        service.chat_service.list_ready_source_ids_for_chat = AsyncMock(return_value=["test-source-1"])
         service.rag_service.query = AsyncMock(return_value=mock_rag_result)
 
         # Execute
         result = await service.send_message_with_rag(
             chat_session_id=chat.id,
             user_message=long_message,
-            collection_name="test_collection",
         )
 
         # Assert full message preserved
@@ -213,6 +212,7 @@ class TestChatApplicationService:
 
         # Mock RAG service to raise error
         service = ChatApplicationService(test_db_session)
+        service.chat_service.list_ready_source_ids_for_chat = AsyncMock(return_value=["test-source-1"])
         service.rag_service.query = AsyncMock(
             side_effect=Exception("RAG pipeline failed")
         )
@@ -222,7 +222,6 @@ class TestChatApplicationService:
             await service.send_message_with_rag(
                 chat_session_id=chat.id,
                 user_message="Test question",
-                collection_name="test_collection",
             )
 
         assert "RAG pipeline failed" in str(exc_info.value)

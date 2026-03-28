@@ -1,9 +1,25 @@
 services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend_container
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NODE_ENV: production
+    depends_on:
+      rag-app:
+        condition: service_started
+    networks:
+      - postgres
+
   rag-app:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: rag-app-1
+    container_name: rag-app_container
     ports:
       - "8000:8000"
     volumes:
@@ -11,6 +27,8 @@ services:
       - venv_data:/app/.venv
     environment:
       POSTGRES_HOST: postgres
+      POSTGRES_DB: my_rag_db
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-false}
       REDIS_HOST: redis
       TEI_URL: http://host.docker.internal:8080
       OLLAMA_URL: http://ollama:11434
@@ -21,6 +39,12 @@ services:
       KAGGLE_LLM_API_KEY: ${KAGGLE_LLM_API_KEY:-}
       KAGGLE_LLM_MAX_TOKENS: ${KAGGLE_LLM_MAX_TOKENS:-1024}
       KAGGLE_LLM_TEMPERATURE: ${KAGGLE_LLM_TEMPERATURE:-0.2}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_API_URL: ${GROQ_API_URL:-https://api.groq.com/openai/v1}
+      GROQ_TITLE_MODEL: ${GROQ_TITLE_MODEL:-llama-3.1-8b-instant}
+      GROQ_TITLE_TEMPERATURE: ${GROQ_TITLE_TEMPERATURE:-0.2}
+      GROQ_TITLE_MAX_TOKENS: ${GROQ_TITLE_MAX_TOKENS:-24}
+      GROQ_TITLE_TIMEOUT: ${GROQ_TITLE_TIMEOUT:-10}
       CHAT_HISTORY_MAX_TURNS: ${CHAT_HISTORY_MAX_TURNS:-10}
       ENABLE_METRICS: "true"
       ENABLE_TRACING: "false"
@@ -74,7 +98,7 @@ services:
 
   ollama:
     image: ollama/ollama
-    container_name: ollama
+    container_name: ollama_container
     ports:
       - "11434:11434"
     volumes:
@@ -114,7 +138,7 @@ services:
     image: grafana/grafana:latest
     container_name: grafana_container
     ports:
-      - "3000:3000"
+      - "3002:3000"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning
       - grafana_data:/var/lib/grafana

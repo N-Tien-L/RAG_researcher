@@ -40,12 +40,11 @@ def test_rag_service_answer_returns_llm_text_and_sources(monkeypatch: pytest.Mon
     )
 
     service = RagService(top_k=2)
-    response = service.answer("What is alpha?", collection_name="docs", where={"tag": "alpha"})
+    response = service.answer("What is alpha?", where={"tag": "alpha"})
 
     embedder._embed.assert_called_once_with(["What is alpha?"], mode="query")
     retrieve_mock.assert_called_once_with(
         embedding=[0.4],
-        collection_name="docs",
         top_k=2,
         where={"tag": "alpha"},
     )
@@ -76,7 +75,7 @@ def test_rag_service_answer_returns_fallback_when_no_chunks(monkeypatch: pytest.
     monkeypatch.setattr(rag_service_module, "retrieve_chunks", retrieve_mock)
 
     service = RagService(top_k=3)
-    response = service.answer("Any", collection_name="docs")
+    response = service.answer("Any")
 
     embedder._embed.assert_called_once_with(["Any"], mode="query")
     retrieve_mock.assert_called_once()

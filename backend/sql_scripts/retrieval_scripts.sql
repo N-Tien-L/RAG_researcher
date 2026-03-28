@@ -1,17 +1,16 @@
 
 -- 1. Check the source and its status
-SELECT id, title, status, collection_name, content_hash, source_uri, last_ingested_at
+SELECT id, title, status, content_hash, source_uri, last_ingested_at
 FROM sources
 WHERE id = '37a36c6d-a58c-4561-aeed-7b4cb992a53a';
 
 -- 2. Count chunks stored for this source
-SELECT COUNT(*) AS chunks_count, collection_name
+SELECT COUNT(*) AS chunks_count
 FROM document_chunks
-WHERE source_id = '37a36c6d-a58c-4561-aeed-7b4cb992a53a'
-GROUP BY collection_name;
+WHERE source_id = '37a36c6d-a58c-4561-aeed-7b4cb992a53a';
 
 -- 3. Preview first 3 chunks (verify content looks correct)
-SELECT chunk_id, LEFT(content, 150) AS preview, collection_name
+SELECT chunk_id, LEFT(content, 150) AS preview
 FROM document_chunks
 WHERE source_id = '37a36c6d-a58c-4561-aeed-7b4cb992a53a'
 ORDER BY chunk_id
@@ -46,12 +45,11 @@ SELECT
     s.id            AS source_id,
     s.title         AS source_title,
     s.status        AS source_status,
-    s.collection_name,
     COUNT(dc.id)    AS chunk_count
 FROM chat_sessions cs
 LEFT JOIN chat_session_sources css ON css.chat_session_id = cs.id
 LEFT JOIN sources s                ON s.id = css.source_id
 LEFT JOIN document_chunks dc       ON dc.source_id = s.id::text
 WHERE cs.user_id = '0fffbfed-ce8d-4e14-b185-1fa7ea4e14c3'
-GROUP BY cs.id, cs.title, s.id, s.title, s.status, s.collection_name
+GROUP BY cs.id, cs.title, s.id, s.title, s.status
 ORDER BY cs.created_at DESC;

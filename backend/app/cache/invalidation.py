@@ -25,22 +25,22 @@ async def invalidate_source_cache(source_id: str) -> int:
     return deleted
 
 
-async def invalidate_collection_cache(collection_name: str) -> int:
-    """Clear all cached data associated with a collection.
+async def invalidate_scope_cache(scope_key: str) -> int:
+    """Clear all cached data associated with a logical retrieval scope.
 
     Args:
-        collection_name: Name of the collection to invalidate.
+        scope_key: Scope identifier to invalidate.
 
     Returns:
         Number of keys deleted.
     """
     redis_client = await get_redis_client()
-    pattern = f"*:{collection_name}:*"
+    pattern = f"*:{scope_key}:*"
     deleted = await redis_client.clear_pattern(pattern)
     logger.info(
         "cache_invalidated",
-        scope="collection",
-        collection_name=collection_name,
+        scope="retrieval_scope",
+        scope_key=scope_key,
         keys_deleted=deleted,
     )
     return deleted

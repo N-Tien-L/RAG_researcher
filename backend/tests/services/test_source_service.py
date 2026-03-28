@@ -6,7 +6,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.schemas import SourceCreate
+from app.db.schemas import SourceCreate, SourceType
 from app.services.exceptions import ResourceNotFound
 from app.services.source_service import SourceService
 
@@ -27,7 +27,6 @@ class TestCreateSource:
             type="pdf",
             title="Test Document",
             source_uri="file://test/document.pdf",
-            collection_name="test_collection",
         )
         
         result = await service.create_source(source_data)
@@ -52,7 +51,6 @@ class TestCreateSource:
             type="youtube",
             title="YouTube Video",
             source_uri="https://youtube.com/watch?v=test",
-            collection_name="youtube_collection",
             status="processing",
             content_hash="abc123hash",
         )
@@ -256,3 +254,89 @@ class TestUpdateIngestionMetadata:
         )
         
         assert result.content_hash == "partial_hash"
+
+
+class TestSourceDedupLookups:
+    """Test cases for source dedup helper lookups."""
+
+    @pytest.mark.asyncio
+    async def test_get_source_by_user_and_content_hash_found(
+        self,
+        test_db_session: AsyncSession,
+        test_user,
+    ):
+        """Returns matching source for a user and content hash."""
+        service = SourceService(test_db_session)
+        created = await service.create_source(
+            SourceCreate(
+                user_id=test_user.id,
+                type=SourceType.pdf,
+                title="Hashable PDF",
+                source_uri="file://test/hashable.pdf",
+                content_hash="hash-abc",
+            )
+        )
+
+        found = await service.get_source_by_user_and_content_hash(
+            user_id=test_user.id,
+            content_hash="hash-abc",
+            source_type=SourceType.pdf,
+        )
+
+        assert found is not None
+        assert found.id == created.id
+
+    @pytest.mark.asyncio
+    async def test_get_source_by_user_and_content_hash_scoped_to_user(
+        self,
+        test_db_session: AsyncSession,
+        test_user,
+        user_factory,
+    ):
+        """Does not return another user's source for the same hash."""
+        service = SourceService(test_db_session)
+        other_user = await user_factory(email="other-hash@example.com")
+
+        await service.create_source(
+            SourceCreate(
+                user_id=other_user.id,
+                type=SourceType.pdf,
+                title="Other User PDF",
+                source_uri="file://test/other.pdf",
+                content_hash="same-hash",
+            )
+        )
+
+        found = await service.get_source_by_user_and_content_hash(
+            user_id=test_user.id,
+            content_hash="same-hash",
+            source_type=SourceType.pdf,
+        )
+
+        assert found is None
+
+    @pytest.mark.asyncio
+    async def test_get_youtube_source_by_user_and_external_id_found(
+        self,
+        test_db_session: AsyncSession,
+        test_user,
+    ):
+        """Returns matching YouTube source for a user and video ID."""
+        service = SourceService(test_db_session)
+        created = await service.create_source(
+            SourceCreate(
+                user_id=test_user.id,
+                type=SourceType.youtube,
+                title="Video",
+                source_uri="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                external_id="dQw4w9WgXcQ",
+            )
+        )
+
+        found = await service.get_youtube_source_by_user_and_external_id(
+            user_id=test_user.id,
+            external_id="dQw4w9WgXcQ",
+        )
+
+        assert found is not None
+        assert found.id == created.id

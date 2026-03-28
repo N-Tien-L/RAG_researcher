@@ -34,7 +34,6 @@ class TestRAGApplicationService:
         # Execute
         result = await service.query(
             question="What is Python?",
-            collection_name="documents",
         )
 
         # Assert result structure
@@ -48,7 +47,6 @@ class TestRAGApplicationService:
         service.pipeline.query.assert_called_once()
         call_kwargs = service.pipeline.query.call_args.kwargs
         assert call_kwargs["question"] == "What is Python?"
-        assert call_kwargs["collection_name"] == "documents"
         assert call_kwargs["where"] is None
 
     async def test_query_with_source_filter(self, test_db_session: AsyncSession):
@@ -64,7 +62,6 @@ class TestRAGApplicationService:
         # Execute with source filter
         result = await service.query(
             question="Test question",
-            collection_name="documents",
             source_id="specific-source",
         )
 
@@ -86,7 +83,6 @@ class TestRAGApplicationService:
         with patch("app.applications.rag_application.logger") as mock_logger:
             await service.query(
                 question="Test question",
-                collection_name="documents",
                 user_id=user_id,
             )
 
@@ -105,7 +101,6 @@ class TestRAGApplicationService:
         # Execute without user_id
         result = await service.query(
             question="Test question",
-            collection_name="documents",
         )
 
         # Should complete successfully
@@ -124,7 +119,6 @@ class TestRAGApplicationService:
         # Execute
         result = await service.query(
             question="Obscure question with no context",
-            collection_name="documents",
         )
 
         # Assert graceful handling
@@ -155,7 +149,6 @@ class TestRAGApplicationService:
         with patch("app.applications.rag_application.logger") as mock_logger:
             await service.query(
                 question=long_question,
-                collection_name="documents",
             )
 
             # Verify question was truncated in logging (first 100 chars)
@@ -180,7 +173,6 @@ class TestRAGApplicationService:
         # Execute
         result = await service.query(
             question="Complex question",
-            collection_name="documents",
         )
 
         # Assert all sources returned
@@ -201,7 +193,6 @@ class TestRAGApplicationService:
         with pytest.raises(Exception) as exc_info:
             await service.query(
                 question="Test",
-                collection_name="documents",
             )
 
         assert "Embedding service unavailable" in str(exc_info.value)
@@ -225,7 +216,6 @@ class TestRAGApplicationService:
         # Execute with source_id filter
         await service.query(
             question="Test",
-            collection_name="docs",
             source_id="my-source",
         )
 
@@ -245,7 +235,6 @@ class TestRAGApplicationService:
         with patch("app.applications.rag_application.logger") as mock_logger:
             await service.query(
                 question="Test",
-                collection_name="documents",
             )
 
             # Check completion log

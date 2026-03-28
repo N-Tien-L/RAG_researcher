@@ -44,6 +44,24 @@ pytest --cov=app --cov-report=html
 pytest tests/test_chunking.py -v
 ```
 
+## Frontend Local Setup
+
+```bash
+# From repository root
+cd frontend
+pnpm install
+pnpm dev
+```
+
+Common commands:
+
+```bash
+pnpm -C frontend lint
+pnpm -C frontend build
+```
+
+Frontend expects backend API at `NEXT_PUBLIC_API_URL` (defaults to `http://localhost:8000`).
+
 ### Test Structure
 
 | Directory | Coverage |
@@ -179,3 +197,20 @@ class MyResourceService:
 - Raise `ResourceNotFound` for missing records
 - Raise `ResourceConflict` for uniqueness violations
 - Never expose SQLAlchemy models outside the service — always return Pydantic schemas
+
+## Pre-Commit Checklist
+
+```bash
+# Backend
+pytest -q
+
+# Frontend
+pnpm -C frontend install
+pnpm -C frontend lint
+```
+
+If any check fails, include a short note in the commit description with:
+
+- Exact command that failed
+- Error category (`test`, `lint`, `build`, `env`)
+- Follow-up issue or fix plan

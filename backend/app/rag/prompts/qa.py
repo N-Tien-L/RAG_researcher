@@ -50,6 +50,63 @@ QA_CONVERSATIONAL_PROMPT_V1.metadata = {
     "created_at": "2026-02-04",
 }
 
+
+# =========================================================================
+# QA_PROMPT_V2: Anti-hallucination improvements (especially for code/technical tasks)
+# =========================================================================
+QA_PROMPT_V2 = ChatPromptTemplate.from_messages([
+    ("system", """You are a precise, strictly-bounded AI assistant. Your ONLY job is to extract and explain information found in the provided Context.
+
+CRITICAL GUARDRAILS (YOU MUST OBEY):
+1. STRICT GROUNDING: You must ONLY use facts, concepts, and examples explicitly stated in the context. Your pre-trained knowledge is strictly forbidden.
+2. NO CODE HALLUCINATION: If the user asks for code snippets, SQL queries, or technical implementations, you MUST ONLY provide them if they exist verbatim in the context. If there is no code in the context, politely refuse and state: "Tài liệu hiện tại không chứa mã nguồn/code minh họa cho phần này."
+3. HANDLING UNKNOWNS: Do not attempt to guess, deduce, or fill in the blanks. If the answer is missing, respond with exactly: "Dựa trên tài liệu được cung cấp, tôi không có đủ thông tin để trả lời câu hỏi này."
+4. CITATION: If answering, briefly mention how it connects to the context (e.g., "Theo tác giả trong video...").
+5. LANGUAGE: Always respond in the language of the user's question (e.g., Vietnamese).
+
+Context:
+{context}"""),
+    ("human", "{question}"),
+])
+
+QA_PROMPT_V2.metadata = {
+    "version": "2.0",
+    "purpose": "Strict Q&A with anti-hallucination guardrails for 7B models",
+    "required_inputs": ["context", "question"],
+    "created_at": "2026-03-20",
+}
+
+
+# =========================================================================
+# QA_CONVERSATIONAL_PROMPT_V2: Resolve conflicts between conversation history and Context
+# =========================================================================
+QA_CONVERSATIONAL_PROMPT_V2 = ChatPromptTemplate.from_messages([
+    ("system", """You are a precise AI assistant engaged in a conversation.
+
+RULE OF HIERARCHY: 
+The "Context" below is your ONLY source of factual truth. The conversation history is ONLY provided to help you understand pronouns or follow-up questions (e.g., "What did you mean by that?"). Do NOT use facts from the conversation history if they contradict the Context.
+
+CRITICAL GUARDRAILS:
+1. ONLY use information from the Context to answer the current question.
+2. NEVER invent examples, code, or technical commands unless explicitly written in the Context.
+3. If the Context lacks the answer, politely refuse. Do not try to keep the conversation going by making things up.
+4. Always respond in the user's language.
+
+Context:
+{context}"""),
+    MessagesPlaceholder(variable_name="chat_history", optional=True),
+    ("human", "{question}"),
+])
+
+QA_CONVERSATIONAL_PROMPT_V2.metadata = {
+    "version": "2.0",
+    "purpose": "Conversational Q&A with strict context hierarchy over history",
+    "required_inputs": ["context", "question"],
+    "optional_inputs": ["chat_history"],
+    "created_at": "2026-03-20",
+}
+
+
 # Helper function for backwards compatibility
 def qa_prompt(context: str, question: str) -> str:
     """Format ``QA_PROMPT_V1`` into a plain string.
@@ -65,5 +122,5 @@ def qa_prompt(context: str, question: str) -> str:
     Returns:
         str: Newline-joined message contents from ``QA_PROMPT_V1``.
     """
-    messages = QA_PROMPT_V1.format_messages(context=context, question=question)
+    messages = QA_PROMPT_V2.format_messages(context=context, question=question)
     return "\n".join([msg.content for msg in messages])

@@ -28,7 +28,6 @@ class TestIngestionApplicationService:
             type="pdf",
             source_uri="test.pdf",
             status="processing",
-            collection_name="test_collection",
             user_id=test_user.id,
         )
         test_db_session.add(source)
@@ -73,12 +72,10 @@ class TestIngestionApplicationService:
                     source_id=str(source.id),
                     source="test.pdf",
                     source_type="pdf",
-                    collection_name="test_collection",
                 )
 
             # Assert result structure
             assert result["chunks_added"] == 2
-            assert result["collection"] == "test_collection"
             assert result["status"] == "ingested"
             assert "content_hash" in result
             assert len(result["ids"]) == 2
@@ -105,7 +102,6 @@ class TestIngestionApplicationService:
             type="youtube",
             source_uri="https://youtube.com/watch?v=test",
             status="processing",
-            collection_name="videos",
             user_id=test_user.id,
         )
         test_db_session.add(source)
@@ -147,7 +143,6 @@ class TestIngestionApplicationService:
                     source_id=str(source.id),
                     source="https://youtube.com/watch?v=test",
                     source_type="youtube",
-                    collection_name="videos",
                 )
 
             assert result["chunks_added"] == 2
@@ -165,7 +160,6 @@ class TestIngestionApplicationService:
             type="pdf",
             source_uri="test.pdf",
             status="ready",
-            collection_name="documents",
             user_id=test_user.id,
         )
         test_db_session.add(source)
@@ -211,7 +205,6 @@ class TestIngestionApplicationService:
             type="pdf",
             source_uri="test.pdf",
             status="ready",
-            collection_name="documents",
             user_id=test_user.id,
         )
         test_db_session.add(source)
@@ -274,7 +267,6 @@ class TestIngestionApplicationService:
             type="pdf",
             source_uri="corrupt.pdf",
             status="processing",
-            collection_name="documents",
             user_id=test_user.id,
         )
         test_db_session.add(source)
@@ -312,7 +304,6 @@ class TestIngestionApplicationService:
             type="pdf",
             source_uri="test.pdf",
             status="processing",
-            collection_name="documents",
             user_id=test_user.id,
         )
         test_db_session.add(source)
@@ -365,7 +356,6 @@ class TestIngestionApplicationService:
             type="pdf",
             source_uri="test.pdf",
             status="processing",
-            collection_name="documents",
             user_id=test_user.id,
         )
         test_db_session.add(source)
@@ -419,7 +409,6 @@ class TestIngestionApplicationService:
             type="pdf",
             source_uri="test.unknown",
             status="processing",
-            collection_name="documents",
             user_id=test_user.id,
         )
         test_db_session.add(source)

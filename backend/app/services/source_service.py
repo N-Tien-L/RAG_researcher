@@ -40,7 +40,6 @@ class SourceService:
             type=source_in.type.value,
             title=source_in.title,
             status=source_in.status.value if isinstance(source_in.status, schemas.SourceStatus) else source_in.status,
-            collection_name=source_in.collection_name,
             source_key=source_in.source_key,
             source_uri=source_in.source_uri,
             external_id=source_in.external_id,
@@ -93,6 +92,64 @@ class SourceService:
         result = await self.db.execute(stmt)
         sources = result.scalars().all()
         return [schemas.SourceRead.model_validate(src) for src in sources]
+
+    async def get_source_by_user_and_content_hash(
+        self,
+        user_id: UUID,
+        content_hash: str,
+        source_type: schemas.SourceType | None = None,
+    ) -> schemas.SourceRead | None:
+        """Return the most recent source for a user by content hash.
+
+        Args:
+            user_id: UUID of the source owner.
+            content_hash: SHA-256 content hash to match.
+            source_type: Optional source type filter.
+
+        Returns:
+            The matching source if found; otherwise ``None``.
+        """
+        stmt = select(models.Source).where(
+            models.Source.user_id == user_id,
+            models.Source.content_hash == content_hash,
+        )
+        if source_type is not None:
+            stmt = stmt.where(models.Source.type == source_type.value)
+
+        stmt = stmt.order_by(models.Source.created_at.desc()).limit(1)
+        result = await self.db.execute(stmt)
+        source = result.scalars().first()
+        if source is None:
+            return None
+        return schemas.SourceRead.model_validate(source)
+
+    async def get_youtube_source_by_user_and_external_id(
+        self,
+        user_id: UUID,
+        external_id: str,
+    ) -> schemas.SourceRead | None:
+        """Return the most recent YouTube source for a user by external ID.
+
+        Args:
+            user_id: UUID of the source owner.
+            external_id: YouTube video ID.
+
+        Returns:
+            The matching source if found; otherwise ``None``.
+        """
+        stmt = (
+            select(models.Source)
+            .where(models.Source.user_id == user_id)
+            .where(models.Source.type == schemas.SourceType.youtube.value)
+            .where(models.Source.external_id == external_id)
+            .order_by(models.Source.created_at.desc())
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        source = result.scalars().first()
+        if source is None:
+            return None
+        return schemas.SourceRead.model_validate(source)
 
     async def update_source_status(
         self, source_id: UUID, status: schemas.SourceStatus

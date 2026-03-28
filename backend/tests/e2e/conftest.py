@@ -25,9 +25,6 @@ E2E_EMBEDDING: list[float] = [0.1] * 384
 #: Static answer returned by the mocked LLM.
 E2E_ANSWER: str = "E2E test answer."
 
-#: Collection name used for all e2e seeded data.
-E2E_COLLECTION: str = "e2e_collection"
-
 #: Fake PDF extraction dict returned by mocked extract_from_pdf in ingestion tests.
 E2E_PDF_EXTRACTION: dict = {
     "page_texts": {"page_1": "RAG stands for Retrieval-Augmented Generation. It combines retrieval and generation."},
@@ -93,7 +90,6 @@ async def seeded_source(test_db_session: AsyncSession, test_user: User) -> Sourc
         type="pdf",
         title="E2E Test Document",
         status="ready",
-        collection_name=E2E_COLLECTION,
         source_uri="file://e2e/test.pdf",
     )
     test_db_session.add(source)
@@ -126,7 +122,6 @@ async def seeded_chunks(
         embedding=E2E_EMBEDDING,
         source_id=str(seeded_source.id),
         file_hash="e2e-hash-abc123",
-        collection_name=E2E_COLLECTION,
     )
     test_db_session.add(chunk)
     await test_db_session.commit()
@@ -153,7 +148,6 @@ async def seeded_source_processing(
         type="pdf",
         title="E2E Ingestion Test Document",
         status="processing",
-        collection_name=E2E_COLLECTION,
         source_uri="file://e2e/ingestion_test.pdf",
     )
     test_db_session.add(source)

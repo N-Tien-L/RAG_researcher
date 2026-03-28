@@ -10,8 +10,21 @@ class TestCreateChatSession:
     """Test cases for POST /api/chats/ endpoint."""
     
     @pytest.mark.asyncio
-    async def test_create_chat_success(self, authenticated_client: AsyncClient, test_user: User):
+    async def test_create_chat_success(
+        self,
+        authenticated_client: AsyncClient,
+        test_user: User,
+        monkeypatch,
+    ):
         """Valid request creates chat session."""
+        async def fail_if_called(_: str) -> str:
+            raise AssertionError("title generation should not run")
+
+        monkeypatch.setattr(
+            "app.services.chat_service.generate_chat_title",
+            fail_if_called,
+        )
+
         response = await authenticated_client.post(
             "/api/chats/",
             json={
@@ -27,6 +40,35 @@ class TestCreateChatSession:
         assert data["title"] == "My New Chat"
         assert data["user_id"] == str(test_user.id)
         assert "created_at" in data
+
+    @pytest.mark.asyncio
+    async def test_create_chat_generates_title_from_first_message(
+        self,
+        authenticated_client: AsyncClient,
+        test_user: User,
+        monkeypatch,
+    ):
+        """Missing title uses the first message to generate one."""
+        async def fake_generate_title(message: str) -> str:
+            assert message == "Summarize this document indexing approach for me"
+            return "Summarize document indexing approach"
+
+        monkeypatch.setattr(
+            "app.services.chat_service.generate_chat_title",
+            fake_generate_title,
+        )
+
+        response = await authenticated_client.post(
+            "/api/chats/",
+            json={
+                "user_id": str(test_user.id),
+                "first_message": "Summarize this document indexing approach for me",
+            },
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["title"] == "Summarize document indexing approach"
     
     @pytest.mark.asyncio
     async def test_create_chat_for_another_user(
@@ -278,4 +320,55 @@ class TestLinkSourceToChat:
         import uuid
         response = await client.post(f"/api/chats/{uuid.uuid4()}/sources/{uuid.uuid4()}")
         
+        assert response.status_code == 401
+
+
+class TestListChatSources:
+    """Test cases for GET /api/chats/{chat_session_id}/sources endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_list_chat_sources_success(
+        self,
+        authenticated_client: AsyncClient,
+        test_user: User,
+        chat_factory,
+        source_factory,
+    ):
+        """Returns sources linked to the target chat session."""
+        chat = await chat_factory(user_id=test_user.id)
+        source = await source_factory(user_id=test_user.id, title="Linked source")
+
+        link_response = await authenticated_client.post(
+            f"/api/chats/{chat.id}/sources/{source.id}"
+        )
+        assert link_response.status_code == 200
+
+        response = await authenticated_client.get(f"/api/chats/{chat.id}/sources")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["id"] == str(source.id)
+
+    @pytest.mark.asyncio
+    async def test_list_chat_sources_forbidden(
+        self,
+        authenticated_client: AsyncClient,
+        user_factory,
+        chat_factory,
+    ):
+        """Different user cannot list sources for another user's chat."""
+        other_user = await user_factory(email="other-chat-sources@example.com")
+        chat = await chat_factory(user_id=other_user.id)
+
+        response = await authenticated_client.get(f"/api/chats/{chat.id}/sources")
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_list_chat_sources_unauthorized(self, client: AsyncClient):
+        """No auth returns 401."""
+        import uuid
+
+        response = await client.get(f"/api/chats/{uuid.uuid4()}/sources")
         assert response.status_code == 401

@@ -2,9 +2,9 @@
 
 > Conversational AI over PDF and YouTube sources
 
-![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-green) ![pgvector](https://img.shields.io/badge/pgvector-PostgreSQL-blue)
+![Python](https://img.shields.io/badge/python-3.12%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-green) ![pgvector](https://img.shields.io/badge/pgvector-PostgreSQL-blue)
 
-RAG Researcher is a production-ready Retrieval-Augmented Generation (RAG) backend that lets users upload PDF documents or YouTube video URLs, ingest them into a pgvector store, and ask questions via a conversational chat interface. The LangChain LCEL pipeline handles multi-turn chat history, Redis-cached embeddings, and supports both Ollama and Kaggle LitServe as interchangeable LLM backends.
+RAG Researcher is a production-ready Retrieval-Augmented Generation (RAG) system with a FastAPI backend and a Next.js frontend. Users can upload PDF documents or YouTube video URLs, ingest them into a pgvector store, and ask questions via a conversational chat interface. The LangChain LCEL pipeline handles multi-turn chat history, Redis-cached embeddings, and supports both Ollama and Kaggle LitServe as interchangeable LLM backends.
 
 ## Architecture Overview
 
@@ -52,6 +52,9 @@ cp .env.example .env
 
 # 3. Run database migrations
 docker-compose exec rag-app alembic upgrade head
+
+# 3.5. Open the frontend app
+# http://localhost:3000
 
 # 4. Register a user and get a token
 curl -X POST http://localhost:8000/api/users \
@@ -118,7 +121,8 @@ The API includes a complete observability stack powered by **Grafana**, **Promet
 
 ### Quick Access
 
-- **Grafana Dashboards**: `http://localhost:3000` (default credentials: `admin` / `admin`)
+- **Frontend App**: `http://localhost:3000`
+- **Grafana Dashboards**: `http://localhost:3002` (default credentials: `admin` / `admin`)
 - **Prometheus**: `http://localhost:9090`
 - **Tempo**: `http://localhost:3200` (traces backend)
 - **Loki**: `http://localhost:3100` (logs backend)
@@ -294,4 +298,22 @@ docker-compose down
 - Wait 30-60 seconds after startup for metrics to populate
 - Make API requests to generate metrics
 - Check time range in dashboard (default: last 1 hour)
+
+## Commit Readiness Checklist
+
+Run these checks before committing:
+
+```bash
+# Backend tests
+pytest -q
+
+# Frontend dependencies + lint
+pnpm -C frontend install
+pnpm -C frontend lint
+```
+
+Current known blockers discovered in this repo state:
+
+- Backend test collection fails due to `pytest_plugins` being declared in `backend/tests/conftest.py` (Pytest deprecation for non-top-level conftest).
+- Frontend lint command exists but `eslint` is not currently available in `frontend/package.json` devDependencies.
 

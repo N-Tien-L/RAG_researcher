@@ -68,7 +68,6 @@ async def insert_chunks(
     embeddings: list[list[float]],
     source_id: str,
     file_hash: str,
-    collection_name: str,
 ) -> int:
     """Bulk-insert document chunks with pre-computed embeddings into pgvector.
 
@@ -85,7 +84,6 @@ async def insert_chunks(
         source_id: UUID string of the parent ``Source`` record.
         file_hash: SHA-256 hash of the raw source content; stored on every
             chunk row for deduplication checks.
-        collection_name: Logical collection/namespace for scoped retrieval.
 
     Returns:
         int: Number of rows inserted.
@@ -100,7 +98,6 @@ async def insert_chunks(
             embedding=embeddings[idx],
             source_id=source_id,
             file_hash=file_hash,
-            collection_name=collection_name,
         )
         for idx, chunk in enumerate(chunks)
     ]
@@ -122,7 +119,6 @@ async def query_chunks(
     db: AsyncSession,
     *,
     embedding: list[float],
-    collection_name: str,
     top_k: int = 5,
     where: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
@@ -136,10 +132,9 @@ async def query_chunks(
     Args:
         db: Async database session.
         embedding: Query embedding vector (dimension must match stored vectors).
-        collection_name: Logical collection/namespace to restrict the search.
         top_k: Maximum number of results to return (default 5).
         where: Optional metadata filter dict.  Currently supported key:
-            ``"source_id"`` (str) — restricts results to one document.
+            ``"source_id"`` (str) or ``"source_ids"`` (list[str]).
 
     Returns:
         list[dict]: Each dict contains ``"id"``, ``"text"``, ``"source_id"``,
@@ -157,7 +152,6 @@ async def query_chunks(
             DocumentChunk.file_hash.label("file_hash"),
             DocumentChunk.embedding.cosine_distance(embedding).label("distance"),
         )
-        .where(DocumentChunk.collection_name == collection_name)
         .order_by("distance")
         .limit(top_k)
     )
@@ -166,6 +160,11 @@ async def query_chunks(
     if where:
         if "source_id" in where:
             stmt = stmt.where(DocumentChunk.source_id == where["source_id"])
+        if "source_ids" in where:
+            source_ids = where["source_ids"]
+            if not source_ids:
+                return []
+            stmt = stmt.where(DocumentChunk.source_id.in_(source_ids))
 
     try:
         result = await db.execute(stmt)

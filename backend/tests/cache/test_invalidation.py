@@ -34,27 +34,27 @@ class TestInvalidateSourceCache:
 
 
 @pytest.mark.asyncio
-class TestInvalidateCollectionCache:
-    """Test collection cache invalidation."""
+class TestInvalidateScopeCache:
+    """Test scope cache invalidation."""
 
-    async def test_invalidate_collection_cache_success(self):
-        """Test successful collection cache invalidation."""
+    async def test_invalidate_scope_cache_success(self):
+        """Test successful scope cache invalidation."""
         mock_client = AsyncMock()
         mock_client.clear_pattern = AsyncMock(return_value=12)
         
         with patch("app.cache.invalidation.get_redis_client", return_value=mock_client):
-            deleted = await invalidation.invalidate_collection_cache("my_collection")
+            deleted = await invalidation.invalidate_scope_cache("my_scope")
             
             assert deleted == 12
-            mock_client.clear_pattern.assert_called_once_with("*:my_collection:*")
+            mock_client.clear_pattern.assert_called_once_with("*:my_scope:*")
 
-    async def test_invalidate_collection_cache_empty(self):
-        """Test collection cache invalidation with no matches."""
+    async def test_invalidate_scope_cache_empty(self):
+        """Test scope cache invalidation with no matches."""
         mock_client = AsyncMock()
         mock_client.clear_pattern = AsyncMock(return_value=0)
         
         with patch("app.cache.invalidation.get_redis_client", return_value=mock_client):
-            deleted = await invalidation.invalidate_collection_cache("empty_collection")
+            deleted = await invalidation.invalidate_scope_cache("empty_scope")
             
             assert deleted == 0
 

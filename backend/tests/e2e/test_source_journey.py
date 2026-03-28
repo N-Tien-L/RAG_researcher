@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import DocumentChunk, Source, User
-from tests.e2e.conftest import E2E_COLLECTION, E2E_EMBEDDING, E2E_PDF_EXTRACTION
+from tests.e2e.conftest import E2E_EMBEDDING, E2E_PDF_EXTRACTION
 
 pytestmark = pytest.mark.e2e
 
@@ -69,7 +69,6 @@ class TestSourceProcessJourney:
         data = resp.json()
         assert data["status"] == "ingested"
         assert data["chunks_added"] >= 1
-        assert data["collection"] == E2E_COLLECTION
         assert data["content_hash"]
         assert data["source"]["status"] == "ready"
 
@@ -81,7 +80,6 @@ class TestSourceProcessJourney:
         )
         chunks = result.scalars().all()
         assert len(chunks) >= 1
-        assert chunks[0].collection_name == E2E_COLLECTION
 
     @pytest.mark.asyncio
     @patch(
@@ -95,8 +93,9 @@ class TestSourceProcessJourney:
         mock_extract: MagicMock,
         authenticated_client: AsyncClient,
         seeded_source_processing: Source,
+        test_db_session: AsyncSession,
     ) -> None:
-        """After processing, the response contains a 64-character SHA-256 content_hash."""
+        """After processing, content_hash is returned and persisted to the source row."""
         mock_embedder_cls.return_value = _make_embedder_mock()
 
         resp = await authenticated_client.post(
@@ -107,6 +106,11 @@ class TestSourceProcessJourney:
         content_hash = resp.json()["content_hash"]
         assert content_hash is not None
         assert len(content_hash) == 64  # SHA-256 hex digest length
+
+        refreshed = await test_db_session.get(Source, seeded_source_processing.id)
+        assert refreshed is not None
+        assert refreshed.content_hash == content_hash
+        assert refreshed.last_ingested_at is not None
 
     @pytest.mark.asyncio
     async def test_process_source_not_found(
@@ -133,7 +137,6 @@ class TestSourceProcessJourney:
             type="pdf",
             title="Someone Else's PDF",
             status="processing",
-            collection_name=E2E_COLLECTION,
             source_uri="file://e2e/other.pdf",
         )
         test_db_session.add(source)
@@ -177,7 +180,7 @@ class TestSourceProcessJourney:
         upload_resp = await authenticated_client.post(
             "/api/sources/upload",
             files=files,
-            data={"title": "E2E Upload & Process", "collection_name": E2E_COLLECTION},
+            data={"title": "E2E Upload & Process"},
         )
         assert upload_resp.status_code == 201, upload_resp.text
         source_id = upload_resp.json()["id"]

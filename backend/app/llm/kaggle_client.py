@@ -73,6 +73,18 @@ class KaggleChatModel(BaseChatModel):
                 "KAGGLE_LLM_URL must be set when LLM_PROVIDER='kaggle'. "
                 "Update it in your .env file after starting the Kaggle tunnel."
             )
+
+        # If user provided a host without scheme (e.g. 'abc.ngrok-free.dev'),
+        # assume HTTPS and prepend it. This helps in local dev where users set
+        # the tunnel host in the .env without the scheme.
+        if not (self.api_url.startswith("http://") or self.api_url.startswith("https://")):
+            logger.warning(
+                "kaggle_litserve_missing_scheme",
+                original_url=self.api_url,
+                action="prepending https://",
+            )
+            self.api_url = "https://" + self.api_url
+
         return self
 
     @property
@@ -119,15 +131,46 @@ class KaggleChatModel(BaseChatModel):
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
+        post_url = f"{self.api_url.rstrip('/')}/predict"
+        logger.info("kaggle_llm_call", url=post_url)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
-                f"{self.api_url.rstrip('/')}/predict",
+                post_url,
                 json=payload,
                 headers=headers,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except Exception as exc:
+                logger.error(
+                    "kaggle_llm_http_error",
+                    status_code=getattr(response, "status_code", None),
+                    text=(getattr(response, "text", "")[:1000] if response is not None else None),
+                    error=str(exc),
+                )
+                raise
 
-        text: str = response.json()["response"]
+        # Parse and validate JSON payload from LitServe
+        try:
+            data = response.json()
+        except Exception as exc:
+            logger.error(
+                "kaggle_llm_invalid_json",
+                status_code=response.status_code,
+                text=(response.text[:2000] if response.text is not None else None),
+                error=str(exc),
+            )
+            raise RuntimeError("Invalid JSON received from Kaggle LitServe endpoint") from exc
+
+        if not isinstance(data, dict) or "response" not in data:
+            logger.error(
+                "kaggle_llm_missing_response_field",
+                status_code=response.status_code,
+                body=data,
+            )
+            raise RuntimeError("Kaggle LitServe response missing required 'response' field")
+
+        text: str = data["response"]
         logger.debug(
             "kaggle_llm_response_received",
             response_length=len(text),

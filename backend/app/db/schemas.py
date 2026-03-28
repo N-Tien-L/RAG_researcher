@@ -7,7 +7,7 @@ from enum import Enum
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 # Shared enums -----------------------------------------------------------------
@@ -127,6 +127,16 @@ class ChatSessionCreate(ChatSessionBase):
     """Request schema for creating a new chat session."""
 
     user_id: UUID
+    first_message: Optional[str] = None
+
+    @field_validator("first_message")
+    @classmethod
+    def normalize_first_message(cls, value: Optional[str]) -> Optional[str]:
+        """Strip blank first messages so the service can treat them as absent."""
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class ChatSessionUpdate(ORMModel):
@@ -164,6 +174,9 @@ class ChatMessageRead(ChatMessageBase, TimestampedModel):
 
     id: UUID
     chat_id: UUID
+    # Optional per-message source payloads returned for assistant messages.
+    # Stored as a list of arbitrary dicts containing chunk metadata.
+    sources: list[dict] = Field(default_factory=list)
 
 
 # Sources ----------------------------------------------------------------------
@@ -174,7 +187,6 @@ class SourceBase(ORMModel):
 
     type: SourceType
     title: str
-    collection_name: str
     status: SourceStatus = SourceStatus.processing
     source_key: Optional[str] = None
     source_uri: Optional[str] = None
@@ -194,7 +206,6 @@ class SourceUpdate(ORMModel):
     """Request schema for partial source record updates."""
 
     title: Optional[str] = None
-    collection_name: Optional[str] = None
     status: Optional[SourceStatus] = None
     source_key: Optional[str] = None
     source_uri: Optional[str] = None
@@ -220,7 +231,6 @@ class SourceProcessResponse(ORMModel):
     """
     source: SourceRead
     chunks_added: int
-    collection: str
     ids: list[str]
     content_hash: str
     status: str  # 'ingested' or 'skipped'

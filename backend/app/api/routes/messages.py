@@ -22,7 +22,6 @@ class SendMessageRequest(BaseModel):
     chat_id: UUID
     content: str = Field(..., min_length=1, max_length=10000)
     use_rag: bool = Field(default=True, description="Use RAG for generating response")
-    collection_name: str = Field(default="documents")
 
 
 class SendMessageResponse(BaseModel):
@@ -31,6 +30,7 @@ class SendMessageResponse(BaseModel):
     user_message: schemas.ChatMessageRead
     assistant_message: schemas.ChatMessageRead
     sources: list[dict] = Field(default_factory=list)
+    chat_title: str | None = Field(default=None)
 
 
 @router.post("/send", response_model=SendMessageResponse)
@@ -52,7 +52,7 @@ async def send_message(
 
     Args:
         request: Message payload including ``chat_id``, ``content``,
-            ``use_rag`` flag, and target ``collection_name``.
+            and ``use_rag`` flag.
         db: Database session used to initialise application services.
         current_user: Authenticated user; must own the chat session.
 
@@ -88,7 +88,6 @@ async def send_message(
         result = await chat_app_service.send_message_with_rag(
             chat_session_id=request.chat_id,
             user_message=request.content,
-            collection_name=request.collection_name,
         )
         return SendMessageResponse(**result)
     else:

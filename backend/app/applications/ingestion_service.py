@@ -88,7 +88,6 @@ class IngestionService:
         self,
         source: str,
         source_type: Literal["pdf", "youtube"],
-        collection_name: str = "documents",
         extra_metadata: Optional[Dict[str, Any]] = None,
         *,
         source_uuid: Optional[str] = None,
@@ -126,7 +125,6 @@ class IngestionService:
             logger.info("Source unchanged; skipping ingestion", extra={"source_id": source_id})
             return {
                 "chunks_added": 0,
-                "collection": collection_name,
                 "ids": [],
                 "content_hash": file_hash,
                 "status": "skipped",
@@ -157,15 +155,13 @@ class IngestionService:
             embeddings=embeddings,
             source_id=source_id,
             file_hash=file_hash,
-            collection_name=collection_name,
         )
         logger.info(
             "Ingestion completed (pgvector)",
-            extra={"chunks_added": inserted, "collection": collection_name},
+            extra={"chunks_added": inserted, "source_id": source_id},
         )
         return {
             "chunks_added": inserted,
-            "collection": collection_name,
             "ids": [c["id"] for c in chunks],
             "content_hash": content_hash,
             "status": "ingested",

@@ -26,7 +26,6 @@ def test_retrieve_chunks_formats_pgvector_response(monkeypatch: pytest.MonkeyPat
         retrieval.retrieve_chunks(
             db=fake_db,
             embedding=embedding,
-            collection_name="docs",
             top_k=2,
             where=where_filter,
         )
@@ -35,7 +34,6 @@ def test_retrieve_chunks_formats_pgvector_response(monkeypatch: pytest.MonkeyPat
     query_mock.assert_called_once_with(
         db=fake_db,
         embedding=embedding,
-        collection_name="docs",
         top_k=2,
         where=where_filter,
     )
@@ -50,7 +48,7 @@ def test_retrieve_chunks_returns_empty_when_no_results(monkeypatch: pytest.Monke
     fake_db = MagicMock()
     
     chunks = asyncio.get_event_loop().run_until_complete(
-        retrieval.retrieve_chunks(db=fake_db, embedding=[0.9], collection_name="docs")
+        retrieval.retrieve_chunks(db=fake_db, embedding=[0.9])
     )
 
     query_mock.assert_called_once()
@@ -85,7 +83,6 @@ def test_rag_pipeline_retrieve_invokes_embedder_and_retrieval(monkeypatch: pytes
         pipeline._retrieve_and_format(
             db=fake_db,
             query="What is RAG?",
-            collection_name="docs",
             where=None,
         )
     )

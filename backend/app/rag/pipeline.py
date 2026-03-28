@@ -28,7 +28,7 @@ from app.observability.metrics import (
     record_rag_query,
 )
 from app.observability.tracing import add_span_attributes, add_span_event, trace_context_manager
-from app.rag.prompts.qa import QA_CONVERSATIONAL_PROMPT_V1
+from app.rag.prompts.qa import QA_CONVERSATIONAL_PROMPT_V1, QA_CONVERSATIONAL_PROMPT_V2
 from app.db import schemas as db_schemas
 from app.rag.retrieval import retrieve_chunks
 from app.services.exceptions import (
@@ -58,6 +58,8 @@ class RAGPipeline:
             max_batch_size=settings.TEI_MAX_BATCH,
             mode="query",
         )
+        # Log external service endpoints used by the pipeline for debugging
+        logger.info("rag.pipeline_configured", tei_url=settings.TEI_URL)
         
         # Initialize LLM based on configured provider
         if settings.LLM_PROVIDER == "kaggle":
@@ -68,22 +70,26 @@ class RAGPipeline:
                 temperature=settings.KAGGLE_LLM_TEMPERATURE,
                 timeout=float(settings.LLM_TIMEOUT),
             )
+            logger.info("rag.llm_config", provider="kaggle", llm_url=settings.KAGGLE_LLM_URL)
         else:
             self.llm = ChatOllama(
                 model=settings.OLLAMA_MODEL,
                 base_url=settings.OLLAMA_URL,
                 temperature=settings.OLLAMA_TEMPERATURE,
             )
+            logger.info("rag.llm_config", provider="ollama", llm_url=settings.OLLAMA_URL)
 
     async def _retrieve_and_format(
-        self, db: AsyncSession, query: str, collection_name: str, where: dict[str, Any] | None
+        self,
+        db: AsyncSession,
+        query: str,
+        where: dict[str, Any] | None,
     ) -> dict[str, Any]:
         """Embed the query, retrieve top-k chunks, and format them as context.
 
         Args:
             db: Async database session for pgvector queries.
             query: The user's question text.
-            collection_name: Vector-store collection to search.
             where: Optional metadata filter dict passed to pgvector.
 
         Returns:
@@ -101,7 +107,6 @@ class RAGPipeline:
         with trace_context_manager(
             "rag.retrieval",
             {
-                "collection_name": collection_name,
                 "top_k": self.top_k,
                 "query": query[:200],
             },
@@ -132,12 +137,11 @@ class RAGPipeline:
             try:
                 with trace_context_manager(
                     "rag.vector_search",
-                    {"collection_name": collection_name},
+                    {"scope": "source_filter" if where else "global"},
                 ):
                     chunks = await retrieve_chunks(
                         db=db,
                         embedding=query_embedding,
-                        collection_name=collection_name,
                         top_k=self.top_k,
                         where=where,
                     )
@@ -274,7 +278,7 @@ class RAGPipeline:
             start = time.perf_counter()
 
             # Build LCEL chain
-            chain = QA_CONVERSATIONAL_PROMPT_V1 | self.llm | StrOutputParser()
+            chain = QA_CONVERSATIONAL_PROMPT_V2 | self.llm | StrOutputParser()
 
             # Invoke with timeout
             try:
@@ -328,7 +332,6 @@ class RAGPipeline:
         self,
         db: AsyncSession,
         question: str,
-        collection_name: str,
         where: dict[str, Any] | None = None,
         chat_history: list[BaseMessage] | None = None,
     ) -> dict[str, Any]:
@@ -337,7 +340,6 @@ class RAGPipeline:
         Args:
             db: Async database session passed through to retrieval.
             question: User question to answer.
-            collection_name: Vector-store collection to search.
             where: Optional metadata filter dict (e.g.
                 ``{"source_id": "<uuid>"}`` to restrict to one document).
             chat_history: Prior conversation turns as LangChain messages for
@@ -348,23 +350,26 @@ class RAGPipeline:
             source dict contains ``source_id``, ``chunk_index``, ``score``,
             and a ``text`` snippet from the retrieved chunk.
         """
+        scope_label = "scoped" if where else "global"
         query_start = time.perf_counter()
         with trace_context_manager(
             "rag.query",
             {
-                "collection_name": collection_name,
+                "scope": scope_label,
                 "question": question[:200],
             },
         ):
             # Retrieve and format context
             retrieval_result = await self._retrieve_and_format(
-                db, question, collection_name, where
+                db,
+                question,
+                where,
             )
 
             if not retrieval_result["chunks"]:
                 logger.info("No chunks found for query", question=question[:100])
                 record_rag_query(
-                    collection=collection_name,
+                    scope=scope_label,
                     duration_seconds=time.perf_counter() - query_start,
                     retrieval_seconds=retrieval_result["retrieval_time_seconds"],
                     generation_seconds=0.0,
@@ -394,7 +399,7 @@ class RAGPipeline:
 
             total_duration = time.perf_counter() - query_start
             record_rag_query(
-                collection=collection_name,
+                scope=scope_label,
                 duration_seconds=total_duration,
                 retrieval_seconds=retrieval_result["retrieval_time_seconds"],
                 generation_seconds=generation_time_seconds,

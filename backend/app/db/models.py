@@ -103,7 +103,7 @@ class ChatMessage(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("chat_sessions.id"),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -117,6 +117,11 @@ class ChatMessage(Base):
 
     # Relationships
     chat_session = relationship("ChatSession", back_populates="messages")
+    message_sources = relationship(
+        "ChatMessageSource",
+        back_populates="chat_message",
+        cascade="all, delete-orphan",
+    )
 
 
 class Source(Base):
@@ -148,8 +153,6 @@ class Source(Base):
         nullable=False,
         default="processing",
     )
-
-    collection_name = Column(String(255), nullable=False)
 
     source_key = Column(String(512), nullable=True)
     source_uri = Column(Text, nullable=True)
@@ -191,9 +194,8 @@ class DocumentChunk(Base):
     chunk_id = Column(String(255), unique=True, nullable=False)
     content = Column(Text, nullable=False)
     embedding = Column(Vector(dim=settings.EMBEDDING_DIM), nullable=False)  # pgvector column
-    source_id = Column(String(255), nullable=False)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.id", ondelete="CASCADE"), nullable=False)
     file_hash = Column(String(128), nullable=False)  # SHA-256 for deduplication
-    collection_name = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -208,12 +210,12 @@ class ChatSessionSource(Base):
 
     chat_session_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("chat_sessions.id"),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
         primary_key=True,
     )
     source_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("sources.id"),
+        ForeignKey("sources.id", ondelete="CASCADE"),
         primary_key=True,
     )
 
@@ -221,8 +223,37 @@ class ChatSessionSource(Base):
 
     # Optional future fields:
     # is_active = Column(Boolean, default=True)
-    # collection_name_override = Column(String)
+    # source_filter_override = Column(String)
 
     # Relationships
     chat_session = relationship("ChatSession", back_populates="source_links")
     source = relationship("Source", back_populates="chat_session_links")
+
+
+class ChatMessageSource(Base):
+    """ORM model for per-message source metadata.
+
+    Stores the raw RAG source payload (as JSON text) associated with an
+    assistant message so the frontend can rehydrate source chunks after
+    reloads.
+    """
+    __tablename__ = "chat_message_sources"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_message_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_messages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # Chunk identifier returned by the retriever / chunker (may be null)
+    chunk_id = Column(String(255), nullable=True)
+
+    # Original source payload (stored as JSON string for simplicity)
+    payload = Column(Text, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+    # Relationships
+    chat_message = relationship("ChatMessage", back_populates="message_sources")
+
