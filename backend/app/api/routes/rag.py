@@ -67,13 +67,14 @@ async def query_rag(
         for source in user_sources
         if source.status == schemas.SourceStatus.ready
     }
+    user_source_ids = {str(source.id) for source in user_sources}
 
     scoped_source_ids = list(ready_source_ids)
     if request.source_id is not None:
-        if request.source_id not in ready_source_ids:
+        if request.source_id not in user_source_ids:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Source not found or not ready",
+                detail="Source not found",
             )
         scoped_source_ids = [request.source_id]
     

@@ -180,11 +180,11 @@ async def query_chunks(
         {
             "id": row.id,
             "text": row.text,
-            "source_id": row.source_id,
+            "source_id": str(row.source_id),
             "distance": float(row.distance),
             "score": 1 - float(row.distance),  # Convert distance to similarity score
             "metadata": {
-                "source_id": row.source_id,
+                "source_id": str(row.source_id),
                 "file_hash": row.file_hash,
             },
         }

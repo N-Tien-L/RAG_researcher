@@ -2,8 +2,10 @@
 
 import pytest
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import Source, User
 from app.vectorstore.pgvector_store import (
     get_existing_file_hash,
     delete_chunks_by_source,
@@ -13,12 +15,39 @@ from app.vectorstore.pgvector_store import (
 from app.services.exceptions import VectorStoreError
 
 
+async def _create_ready_source(test_db_session: AsyncSession, label: str) -> str:
+    """Create a user+ready source and return the source UUID as string."""
+    user = User(
+        email=f"{label}-{uuid4().hex[:8]}@example.com",
+        username=f"user-{uuid4().hex[:8]}",
+        password_hash="test-hash",
+    )
+    test_db_session.add(user)
+    await test_db_session.commit()
+    await test_db_session.refresh(user)
+
+    source = Source(
+        user_id=user.id,
+        type="pdf",
+        title=f"{label}-source",
+        status="ready",
+        source_uri=f"file:///{label}.pdf",
+    )
+    test_db_session.add(source)
+    await test_db_session.commit()
+    await test_db_session.refresh(source)
+
+    return str(source.id)
+
+
 class TestGetExistingFileHash:
     """Tests for get_existing_file_hash function."""
     
     @pytest.mark.asyncio
     async def test_get_existing_file_hash_found(self, test_db_session: AsyncSession):
         """Returns file hash when chunks exist for source."""
+        source_id = await _create_ready_source(test_db_session, "hash-found")
+
         # Insert a chunk first
         chunks = [{"id": "test-chunk-1", "text": "Test content"}]
         embeddings = [[0.1] * 384]
@@ -27,19 +56,19 @@ class TestGetExistingFileHash:
             test_db_session,
             chunks=chunks,
             embeddings=embeddings,
-            source_id="test-source-123",
+            source_id=source_id,
             file_hash="abc123hash",
         )
         
         # Query for file hash
-        file_hash = await get_existing_file_hash(test_db_session, "test-source-123")
+        file_hash = await get_existing_file_hash(test_db_session, source_id)
         
         assert file_hash == "abc123hash"
     
     @pytest.mark.asyncio
     async def test_get_existing_file_hash_not_found(self, test_db_session: AsyncSession):
         """Returns None when no chunks exist for source."""
-        file_hash = await get_existing_file_hash(test_db_session, "nonexistent-source")
+        file_hash = await get_existing_file_hash(test_db_session, str(uuid4()))
         
         assert file_hash is None
 
@@ -50,6 +79,8 @@ class TestDeleteChunksBySource:
     @pytest.mark.asyncio
     async def test_delete_chunks_by_source_success(self, test_db_session: AsyncSession):
         """Successfully deletes all chunks for a source."""
+        source_id = await _create_ready_source(test_db_session, "delete-success")
+
         # Insert chunks
         chunks = [
             {"id": "chunk-1", "text": "Content 1"},
@@ -62,29 +93,32 @@ class TestDeleteChunksBySource:
             test_db_session,
             chunks=chunks,
             embeddings=embeddings,
-            source_id="source-to-delete",
+            source_id=source_id,
             file_hash="hash123",
         )
         
         # Delete chunks
-        deleted_count = await delete_chunks_by_source(test_db_session, "source-to-delete")
+        deleted_count = await delete_chunks_by_source(test_db_session, source_id)
         
         assert deleted_count == 3
         
         # Verify they're actually gone
-        file_hash = await get_existing_file_hash(test_db_session, "source-to-delete")
+        file_hash = await get_existing_file_hash(test_db_session, source_id)
         assert file_hash is None
     
     @pytest.mark.asyncio
     async def test_delete_chunks_by_source_nonexistent(self, test_db_session: AsyncSession):
         """Deleting nonexistent source returns 0."""
-        deleted_count = await delete_chunks_by_source(test_db_session, "does-not-exist")
+        deleted_count = await delete_chunks_by_source(test_db_session, str(uuid4()))
         
         assert deleted_count == 0
     
     @pytest.mark.asyncio
     async def test_delete_chunks_preserves_other_sources(self, test_db_session: AsyncSession):
         """Deletion is scoped to specific source only."""
+        source_id_a = await _create_ready_source(test_db_session, "source-a")
+        source_id_b = await _create_ready_source(test_db_session, "source-b")
+
         # Insert chunks for two different sources
         chunks_a = [{"id": "a-1", "text": "Source A content"}]
         chunks_b = [{"id": "b-1", "text": "Source B content"}]
@@ -94,7 +128,7 @@ class TestDeleteChunksBySource:
             test_db_session,
             chunks=chunks_a,
             embeddings=embeddings,
-            source_id="source-a",
+            source_id=source_id_a,
             file_hash="hash-a",
         )
         
@@ -102,19 +136,19 @@ class TestDeleteChunksBySource:
             test_db_session,
             chunks=chunks_b,
             embeddings=embeddings,
-            source_id="source-b",
+            source_id=source_id_b,
             file_hash="hash-b",
         )
         
         # Delete only source-a
-        await delete_chunks_by_source(test_db_session, "source-a")
+        await delete_chunks_by_source(test_db_session, source_id_a)
         
         # Source A should be gone
-        hash_a = await get_existing_file_hash(test_db_session, "source-a")
+        hash_a = await get_existing_file_hash(test_db_session, source_id_a)
         assert hash_a is None
         
         # Source B should still exist
-        hash_b = await get_existing_file_hash(test_db_session, "source-b")
+        hash_b = await get_existing_file_hash(test_db_session, source_id_b)
         assert hash_b == "hash-b"
     
     @pytest.mark.asyncio
@@ -138,6 +172,8 @@ class TestInsertChunks:
     @pytest.mark.asyncio
     async def test_insert_chunks_success(self, test_db_session: AsyncSession):
         """Successfully inserts chunks with embeddings."""
+        source_id = await _create_ready_source(test_db_session, "insert-success")
+
         chunks = [
             {"id": "chunk-1", "text": "First chunk"},
             {"id": "chunk-2", "text": "Second chunk"},
@@ -148,7 +184,7 @@ class TestInsertChunks:
             test_db_session,
             chunks=chunks,
             embeddings=embeddings,
-            source_id="test-source",
+            source_id=source_id,
             file_hash="test-hash",
         )
         
@@ -157,6 +193,8 @@ class TestInsertChunks:
     @pytest.mark.asyncio
     async def test_insert_chunks_single_chunk(self, test_db_session: AsyncSession):
         """Can insert a single chunk."""
+        source_id = await _create_ready_source(test_db_session, "insert-single")
+
         chunks = [{"id": "single-chunk", "text": "Only chunk"}]
         embeddings = [[0.5] * 384]
         
@@ -164,14 +202,14 @@ class TestInsertChunks:
             test_db_session,
             chunks=chunks,
             embeddings=embeddings,
-            source_id="single-source",
+            source_id=source_id,
             file_hash="single-hash",
         )
         
         assert inserted_count == 1
         
         # Verify it exists
-        file_hash = await get_existing_file_hash(test_db_session, "single-source")
+        file_hash = await get_existing_file_hash(test_db_session, source_id)
         assert file_hash == "single-hash"
     
     @pytest.mark.asyncio
@@ -190,6 +228,8 @@ class TestInsertChunks:
     @pytest.mark.asyncio
     async def test_insert_chunks_large_batch(self, test_db_session: AsyncSession):
         """Can insert many chunks at once."""
+        source_id = await _create_ready_source(test_db_session, "insert-large")
+
         num_chunks = 50
         chunks = [{"id": f"chunk-{i}", "text": f"Content {i}"} for i in range(num_chunks)]
         embeddings = [[0.1 * i] * 384 for i in range(num_chunks)]
@@ -198,7 +238,7 @@ class TestInsertChunks:
             test_db_session,
             chunks=chunks,
             embeddings=embeddings,
-            source_id="large-batch",
+            source_id=source_id,
             file_hash="large-hash",
         )
         
@@ -238,6 +278,8 @@ class TestQueryChunks:
     @pytest.mark.asyncio
     async def test_query_chunks_basic(self, test_db_session: AsyncSession):
         """Basic vector similarity query returns results."""
+        source_id = await _create_ready_source(test_db_session, "query-basic")
+
         # Insert test chunks
         chunks = [
             {"id": "doc-1", "text": "Machine learning is fascinating"},
@@ -255,7 +297,7 @@ class TestQueryChunks:
             test_db_session,
             chunks=chunks,
             embeddings=embeddings,
-            source_id="query-test",
+            source_id=source_id,
             file_hash="query-hash",
         )
         
@@ -282,6 +324,8 @@ class TestQueryChunks:
     @pytest.mark.asyncio
     async def test_query_chunks_respects_top_k(self, test_db_session: AsyncSession):
         """Query respects top_k parameter."""
+        source_id = await _create_ready_source(test_db_session, "query-topk")
+
         # Insert 10 chunks
         chunks = [{"id": f"chunk-{i}", "text": f"Content {i}"} for i in range(10)]
         embeddings = [[0.1 + i * 0.05] * 384 for i in range(10)]
@@ -290,7 +334,7 @@ class TestQueryChunks:
             test_db_session,
             chunks=chunks,
             embeddings=embeddings,
-            source_id="topk-test",
+            source_id=source_id,
             file_hash="topk-hash",
         )
         
@@ -307,6 +351,9 @@ class TestQueryChunks:
     @pytest.mark.asyncio
     async def test_query_chunks_filters_by_source_id(self, test_db_session: AsyncSession):
         """Query can filter by source_id."""
+        source_id_a = await _create_ready_source(test_db_session, "query-filter-a")
+        source_id_b = await _create_ready_source(test_db_session, "query-filter-b")
+
         # Insert chunks from two sources
         chunks_a = [{"id": "a-1", "text": "Source A"}]
         chunks_b = [{"id": "b-1", "text": "Source B"}]
@@ -316,7 +363,7 @@ class TestQueryChunks:
             test_db_session,
             chunks=chunks_a,
             embeddings=embedding,
-            source_id="source-a",
+            source_id=source_id_a,
             file_hash="hash-a",
         )
         
@@ -324,7 +371,7 @@ class TestQueryChunks:
             test_db_session,
             chunks=chunks_b,
             embeddings=embedding,
-            source_id="source-b",
+            source_id=source_id_b,
             file_hash="hash-b",
         )
         
@@ -334,11 +381,11 @@ class TestQueryChunks:
             test_db_session,
             embedding=query_embedding,
             top_k=10,
-            where={"source_id": "source-a"},
+            where={"source_id": source_id_a},
         )
         
         assert len(results) == 1
-        assert results[0]["source_id"] == "source-a"
+        assert results[0]["source_id"] == source_id_a
     
     @pytest.mark.asyncio
     async def test_query_chunks_empty_store(self, test_db_session: AsyncSession):
@@ -355,6 +402,9 @@ class TestQueryChunks:
     @pytest.mark.asyncio
     async def test_query_chunks_filters_by_source_ids(self, test_db_session: AsyncSession):
         """Query only returns results from specified source IDs."""
+        source_id_1 = await _create_ready_source(test_db_session, "query-filter-1")
+        source_id_2 = await _create_ready_source(test_db_session, "query-filter-2")
+
         chunks_1 = [{"id": "chunk-src-1", "text": "Content from source 1"}]
         chunks_2 = [{"id": "chunk-src-2", "text": "Content from source 2"}]
         embedding = [[0.5] * 384]
@@ -363,7 +413,7 @@ class TestQueryChunks:
             test_db_session,
             chunks=chunks_1,
             embeddings=embedding,
-            source_id="test-source-1",
+            source_id=source_id_1,
             file_hash="test-hash-1",
         )
         
@@ -371,7 +421,7 @@ class TestQueryChunks:
             test_db_session,
             chunks=chunks_2,
             embeddings=embedding,
-            source_id="test-source-2",
+            source_id=source_id_2,
             file_hash="test-hash-2",
         )
         
@@ -381,7 +431,7 @@ class TestQueryChunks:
             test_db_session,
             embedding=query_embedding,
             top_k=10,
-            where={"source_ids": ["test-source-1"]},
+            where={"source_ids": [source_id_1]},
         )
         
         # Query only source-2
@@ -389,18 +439,20 @@ class TestQueryChunks:
             test_db_session,
             embedding=query_embedding,
             top_k=10,
-            where={"source_ids": ["test-source-2"]},
+            where={"source_ids": [source_id_2]},
         )
         
         # Both should have results, but from different sources
         assert len(results_1) == 1
         assert len(results_2) == 1
-        assert results_1[0]["source_id"] == "test-source-1"
-        assert results_2[0]["source_id"] == "test-source-2"
+        assert results_1[0]["source_id"] == source_id_1
+        assert results_2[0]["source_id"] == source_id_2
     
     @pytest.mark.asyncio
     async def test_query_chunks_score_calculation(self, test_db_session: AsyncSession):
         """Verify score is calculated as 1 - distance."""
+        source_id = await _create_ready_source(test_db_session, "query-score")
+
         chunks = [{"id": "test-chunk", "text": "Test content"}]
         embeddings = [[0.5] * 384]
         
@@ -408,7 +460,7 @@ class TestQueryChunks:
             test_db_session,
             chunks=chunks,
             embeddings=embeddings,
-            source_id="score-test",
+            source_id=source_id,
             file_hash="score-hash",
         )
         

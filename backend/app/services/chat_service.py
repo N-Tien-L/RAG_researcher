@@ -50,6 +50,8 @@ class ChatService:
             raise ResourceNotFound("User not found")
 
         title = chat_in.title or None
+        if title is None and chat_in.first_message:
+            title = await self._build_chat_title(chat_in.first_message)
 
         chat = models.ChatSession(
             user_id=chat_in.user_id,
